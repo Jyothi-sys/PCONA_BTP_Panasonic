@@ -1,0 +1,2 @@
+SEQUENCE "Edifact_Header_ID"
+    RESET BY Select ifnull(max("ID"),0) + 1 From BTP_PANASONIC_EDIFACT_HEADER;

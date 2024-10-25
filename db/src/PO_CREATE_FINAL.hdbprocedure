@@ -1,0 +1,96 @@
+PROCEDURE "PO_CREATE_FINAL"(
+    IN p_ship_plan_received_from INT DEFAULT NULL,
+    IN p_ship_plan_received_to INT DEFAULT NULL,
+    IN p_itemtype NVARCHAR(15) DEFAULT NULL,
+    IN p_ship_plan_source NVARCHAR(10) DEFAULT NULL,
+    IN p_shipdate_from INT DEFAULT NULL,
+    IN p_shipdate_to INT DEFAULT NULL,
+    IN p_supplyType NVARCHAR(1) DEFAULT NULL,
+    IN p_material NVARCHAR(1000) DEFAULT NULL,
+    IN p_salesorder NVARCHAR(22) DEFAULT NULL,
+    IN p_salesorderline NVARCHAR(10) DEFAULT NULL,
+    IN p_purchasing_org NVARCHAR(4) DEFAULT NULL,
+    IN p_purchasing_group NVARCHAR(4) DEFAULT NULL,
+    IN p_plant NVARCHAR(4) DEFAULT NULL,
+    IN p_vendor_i_e_indicator NVARCHAR(2) DEFAULT NULL,
+    IN p_vendor NVARCHAR(1000) DEFAULT NULL,
+    IN p_sub_con_vendor NVARCHAR(20) DEFAULT NULL,
+        OUT OUT_DATA TABLE(
+        PROC_DATE DATE,
+        PROC_TIME TIME,
+        COUNTER BIGINT,
+        MATNR NVARCHAR(18),
+        SALESORD NVARCHAR(22),
+        SALESORDLINE NVARCHAR(10),
+        DEST NVARCHAR(15),
+        SOURCE NVARCHAR(15),
+        SOURCING NVARCHAR(40),
+        SHIPDATE DATE,
+        SARDATE DATE,
+        QUANTITY NVARCHAR(13),
+        TMODE NVARCHAR(15),
+        SEGMENT NVARCHAR(15),
+        DEMAND NVARCHAR(30),
+        PATTERN NVARCHAR(10),
+        ITEMTYPE NVARCHAR(15),
+        JDASOURCE NVARCHAR(10),
+        JDASUPPLY NVARCHAR(1),
+        UDEST NVARCHAR(15),
+        STATUS NVARCHAR(15),
+        SHIP_PLAN_RECEIVED_FROM DATE,
+        SHIP_PLAN_RECEIVED_TO DATE,
+        SHIP_PLAN_SOURCE NVARCHAR(50),
+        SHIP_FROM NVARCHAR(50),
+        SHIP_TO NVARCHAR(50),
+        SUPPLYTYPE NVARCHAR(1),
+        PURCHASING_ORG NVARCHAR(4),
+        PURCHASING_GROUP NVARCHAR(4),
+        PLANT NVARCHAR(4),
+        VENDOR_I_E_INDICATOR NVARCHAR(2),
+        VENDOR NVARCHAR(1000),
+        SUB_CON_VENDOR NVARCHAR(20),
+        DESTINATION NVARCHAR(50),
+        DEFAULT_DEST NVARCHAR(50)
+    )
+) 
+LANGUAGE SQLSCRIPT 
+SQL SECURITY INVOKER 
+READS SQL DATA AS 
+BEGIN 
+  /*************************************
+  Write your procedure logic
+  *************************************/
+  
+  OUT_DATA = SELECT DISTINCT 
+        ship.*,
+        ADD_DAYS(TO_DATE(CURRENT_DATE, 'YYYY-MM-DD'), (COALESCE(p_ship_plan_received_from, 0) * -1)) AS ship_plan_received_from,
+        ADD_DAYS(TO_DATE(CURRENT_DATE, 'YYYY-MM-DD'), COALESCE(p_ship_plan_received_to, 0)) AS ship_plan_received_to,
+        COALESCE(p_ship_plan_source, '') AS ship_plan_source,
+        ADD_DAYS(TO_DATE(CURRENT_DATE, 'YYYY-MM-DD'), (COALESCE(p_shipdate_from, 0) * -1)) AS ship_from,
+        ADD_DAYS(TO_DATE(CURRENT_DATE, 'YYYY-MM-DD'), COALESCE(p_shipdate_to, 0)) AS ship_to,
+        COALESCE(p_supplyType, '') AS supplyType,
+        COALESCE(p_purchasing_org, '') AS purchasing_org,
+        COALESCE(p_purchasing_group, '') AS purchasing_group,
+        COALESCE(p_plant, '') AS plant,
+        COALESCE(p_vendor_i_e_indicator, '') AS vendor_i_e_indicator,
+        COALESCE(p_vendor, '') AS vendor,
+        COALESCE(p_sub_con_vendor, '') AS sub_con_vendor,
+        zipcode.destination,
+        zipcode.default_dest
+    FROM 
+        "BTP_PANASONIC_ZJDA_SHIP_PLAN" AS ship
+    LEFT OUTER JOIN
+        "BTP_PANASONIC_ZIPCODE_DESTINATION" AS zipcode
+    ON COALESCE(p_plant, '') = zipcode.plant
+    AND zipcode.default_dest = 'Y'
+    WHERE 
+        (COALESCE(p_shipdate_from, 0) = 0 OR ship.shipdate >= ADD_DAYS(TO_DATE(CURRENT_DATE, 'YYYY-MM-DD'), COALESCE(p_shipdate_from, 0) * -1))
+        AND (COALESCE(p_shipdate_to, 0) = 0 OR ship.shipdate <= ADD_DAYS(TO_DATE(CURRENT_DATE, 'YYYY-MM-DD'), COALESCE(p_shipdate_to, 0)))
+        AND (COALESCE(p_ship_plan_received_from, 0) = 0 OR ship.proc_date >= ADD_DAYS(TO_DATE(CURRENT_DATE, 'YYYY-MM-DD'), COALESCE(p_ship_plan_received_from, 0) * -1))
+        AND (COALESCE(p_ship_plan_received_to, 0) = 0 OR ship.proc_date <= ADD_DAYS(TO_DATE(CURRENT_DATE, 'YYYY-MM-DD'), COALESCE(p_ship_plan_received_to, 0)))
+        AND (COALESCE(p_itemtype, '') = '' OR p_itemtype = ship.itemtype)
+        AND (COALESCE(p_ship_plan_source, '') = '' OR p_ship_plan_source = ship.jdasource)
+        AND (COALESCE(p_salesorder, '') = '' OR p_salesorder = ship.salesord)
+        AND (COALESCE(p_salesorderline, '') = '' OR p_salesorderline = ship.salesordline)
+        AND (COALESCE(p_material, '') = '' OR (COALESCE(p_material, '') NOT LIKE '%' || TRIM(ship.matnr) || '%'));
+END;

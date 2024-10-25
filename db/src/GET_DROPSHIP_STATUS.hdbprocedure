@@ -1,0 +1,42 @@
+PROCEDURE GET_DROPSHIP_STATUS(IN PO VARCHAR(10), OUT STATUS VARCHAR(5)) 
+AS 
+BEGIN 
+  -- Defect 85 The where clause corrected to retrieve all data for a given Plant. Removed redundant join to PurchaseGroup_Global_code. The evaluation of the Drop v/s stock takes place in Select clause. The change is done to fix "no data found error"
+
+DECLARE EXIT HANDLER FOR SQL_ERROR_CODE 1299 
+  Status = 'Stock';       -- If No Value is returned from the select query for Plant in ZCrossRef, we default it to "Stock"
+
+SELECT CAST(
+        CASE
+            WHEN (
+                (
+                    T2.Function_Code = 'FG_DROP'
+                    OR T2.Function_Code = 'PART_DROP'
+                    OR T2.Function_Code = 'FG_DROP_ENDUSER'
+                )
+                AND IFNULL(T2.SAP_Code, 'false') = trim(T1.Plant)
+            ) THEN 'Drop'
+            ELSE 'Stock'
+        END AS NVARCHAR(10)
+    ) INTO STATUS
+FROM btp_panasonic_A_PurchaseOrder AS T0
+    INNER JOIN btp_panasonic_A_PurchaseOrderItem AS T1 ON T0.PurchaseOrder = T1.PurchaseOrder_PurchaseOrder
+--    LEFT OUTER JOIN btp_panasonic_PurchaseGroup_GlobalCode AS T3 ON T0.PurchasingOrganization = T3.PurchaseGroup
+    LEFT OUTER JOIN btp_panasonic_ZCROSSREF AS T2 ON (
+        /* (                  -- Start of Defect 85.so
+         (
+         T2.Function_Code = 'FG_DROP'
+         OR T2.Function_Code = 'PART_DROP'
+         )
+         OR (
+         T2.Function_Code <> 'FG_DROP'
+         AND T2.Function_Code <> 'PART_DROP'
+         )
+         ) AND */
+        -- End of Defect 85.eo
+        T2.SAP_Code = trim(T1.Plant)
+    )
+WHERE T0.PurchaseOrder = PO
+ORDER BY T1.purchaseorderitem ASC
+LIMIT 1;
+END

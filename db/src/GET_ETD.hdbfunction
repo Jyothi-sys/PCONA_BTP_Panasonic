@@ -1,0 +1,24 @@
+-- Preethi added for FINT-00066 on 05/12/23
+    FUNCTION GET_ETD(PO NVARCHAR(10),PO_ITEM NVARCHAR(5),RNUM NVARCHAR(10))
+    RETURNS d_date DATE
+    AS
+    BEGIN
+        DECLARE Latestdate DATE;
+    
+        -- Check if the value exists in POConfirmationData
+        IF EXISTS (SELECT 1 FROM BTP_PANASONIC_POConfirmationData WHERE PurchaseOrder = PO AND PurchaseOrderItem = PO_ITEM)
+            THEN
+            -- Retrieve quantity from POConfirmationData
+            SELECT TOP 1 T2.DeliveryDate INTO Latestdate
+            FROM BTP_PANASONIC_POConfirmationData AS T2
+            WHERE T2.PurchaseOrder = PO AND T2.PurchaseOrderItem = PO_ITEM AND T2.RevisionNumber = RNUM
+            -- Added by Preethi on 15/12/23 for defect 145
+            ORDER BY T2.CREATEDAT DESC;        
+
+        ELSE
+            Latestdate = '';   
+        
+        END IF;
+    
+            d_date = Latestdate;
+    END;

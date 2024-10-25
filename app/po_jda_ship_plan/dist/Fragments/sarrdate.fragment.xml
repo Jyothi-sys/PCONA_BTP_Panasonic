@@ -1,0 +1,25 @@
+<c:FragmentDefinition
+	xmlns="sap.m"
+	xmlns:c="sap.ui.core">
+
+
+  <SelectDialog  
+  noDataText="{i18n>NoDataFound}"
+  title="{i18n>ZSARRDATE}"
+  liveChange="onSearchSarrDate"
+  confirm="onSelectionSarrDate"
+  cancel="onDialogClose"
+  multiSelect="true"
+  items="{sarrdateData>/}">
+
+<StandardListItem 
+
+title="{path: 'sarrdateData>sardate'}"
+iconDensityAware="false"
+iconInset="false"
+type="Active" />
+
+
+</SelectDialog >
+</c:FragmentDefinition>
+

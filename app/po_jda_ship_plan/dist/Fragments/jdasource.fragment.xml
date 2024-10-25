@@ -1,0 +1,25 @@
+<c:FragmentDefinition
+	xmlns="sap.m"
+	xmlns:c="sap.ui.core">
+
+
+  <SelectDialog  
+  noDataText="{i18n>NoDataFound}"
+  title="{i18n>ZJDASOURCE}"
+  liveChange="onSearchSource"
+  confirm="onSelectionSource"
+  cancel="onDialogClose"
+  multiSelect="true"
+  items="{sourceData>/}">
+
+<StandardListItem 
+
+title="{path: 'sourceData>jdasource'}"
+iconDensityAware="false"
+iconInset="false"
+type="Active" />
+
+
+</SelectDialog >
+</c:FragmentDefinition>
+

@@ -1,0 +1,11 @@
+PROCEDURE "GET_POSTATUSMONITORING_ID"(OUT NEXT_ID "NEXT_ID"   )
+   LANGUAGE SQLSCRIPT
+   SQL SECURITY INVOKER
+   --DEFAULT SCHEMA <default_schema_name>
+   READS SQL DATA AS
+BEGIN
+   /*************************************
+       Write your procedure logic
+   *************************************/
+   NEXT_ID = SELECT  "POStatusMonitoring_ID".NEXTVAL AS ID  FROM DUMMY;
+END

@@ -1,0 +1,87 @@
+PROCEDURE "USP_GET_MNET_STD"(IN C_ID INTEGER,IN V_MNETID INTEGER,IN V_DOCTYPE NVARCHAR(3),OUT TT_MNET_STD "TT_MNET_STD")
+   LANGUAGE SQLSCRIPT
+   SQL SECURITY INVOKER
+   --DEFAULT SCHEMA <default_schema_name>
+   READS SQL DATA AS
+BEGIN
+    DECLARE V_HOUSEBOLNUMBER NVARCHAR(20);
+    DECLARE V_INVOICENUMBER NVARCHAR(20);
+    DECLARE V_CONTAINERID NVARCHAR(20);
+    DECLARE O_ID INTEGER;
+    DECLARE O_INITIALDESTINATIONETA DATE;
+    DECLARE C_INITIALDESTINATIONETA DATE;
+    DECLARE V_STATUS NVARCHAR(10);
+    DECLARE V_BOLSTATUS NVARCHAR(10);
+    Declare CNT INTEGER;
+    
+    V_STATUS = 'A' ;
+    SELECT TOP 1 T0.HOUSEBOLNUMBER,T0.INVOICENUMBER,T0.CONTAINERID 
+    INTO V_HOUSEBOLNUMBER,V_INVOICENUMBER,V_CONTAINERID
+    FROM BTP_PANASONIC_MNETSTATUSMONITORING As T0 
+    Where T0.ID = V_MNETID;
+
+    SELECT top 1 T0.BOLSTATUS into V_BOLSTATUS From MNET_WORKFLOW_GET_MNET_DATA AS T0 
+    WHERE T0.HOUSEBOLNUMBER = V_HOUSEBOLNUMBER AND T0.INVOICENUMBER = V_INVOICENUMBER AND T0.CONTAINERID = V_CONTAINERID
+    AND T0.ID = C_ID ;
+    IF V_BOLSTATUS !='H' THEN 
+        SELECT IFNULL(MAX(IFNULL(T0.ID,0)),0) INTO O_ID  FROM MNET_WORKFLOW_GET_MNET_DATA AS T0 
+            WHERE T0.HOUSEBOLNUMBER = V_HOUSEBOLNUMBER AND T0.INVOICENUMBER = V_INVOICENUMBER AND T0.CONTAINERID = V_CONTAINERID
+            AND T0.ID != C_ID ;
+            IF O_ID > 0 THEN
+             IF V_DOCTYPE = 'IBD' THEN
+                V_STATUS = 'N' ;
+                 Select TOP 1 T0.initialDestinationETA INTO O_INITIALDESTINATIONETA FROM MNET_WORKFLOW_GET_MNET_DATA AS T0 
+                 Where T0.ID = O_ID ;
+         
+                 Select TOP 1 T0.initialDestinationETA INTO C_INITIALDESTINATIONETA FROM MNET_WORKFLOW_GET_MNET_DATA AS T0 
+                 Where T0.ID = C_ID ;
+                 IF O_INITIALDESTINATIONETA != C_INITIALDESTINATIONETA THEN 
+                     V_STATUS = 'U' ;
+                 END IF;
+               
+                 Select COUNT(T1.ID) INTO CNT from MNET_WORKFLOW_GET_MNET_DATA As T0 
+                 Inner Join MNET_WORKFLOW_GET_MNET_DATA As T1 on
+                 T0.HOUSEBOLNUMBER = T1.HOUSEBOLNUMBER  AND T0.INVOICENUMBER = T1.INVOICENUMBER
+                 AND T0.CONTAINERID = T1.CONTAINERID ANd T0.purchaseOrderNumber = T1.purchaseOrderNumber
+                 And T0.PurchaseOrderItem = T1.PurchaseOrderItem
+                 And T0.quantity != T1.quantity
+                 Where T0.ID = C_ID And T1.ID = O_ID;
+                 IF CNT>0 THEN 
+                     V_STATUS = 'D';
+                 END IF;
+             ELSEIF V_DOCTYPE = 'INV' THEN 
+                V_STATUS = 'N' ;
+                 Select COUNT(T1.ID) INTO CNT from MNET_WORKFLOW_GET_MNET_DATA As T0 
+                 Inner Join    MNET_WORKFLOW_GET_MNET_DATA As T1 on
+                 T0.HOUSEBOLNUMBER = T1.HOUSEBOLNUMBER  AND T0.INVOICENUMBER = T1.INVOICENUMBER
+                 AND T0.CONTAINERID = T1.CONTAINERID ANd T0.purchaseOrderNumber = T1.purchaseOrderNumber
+                 And T0.PurchaseOrderItem = T1.PurchaseOrderItem
+                 And T0.unitPrice != T1.unitPrice
+                 Where T0.ID = C_ID And T1.ID = O_ID;
+                 IF CNT>0 THEN 
+                     V_STATUS = 'D' ;
+                 END IF;
+        
+                    Select COUNT(T1.ID) INTO CNT from MNET_WORKFLOW_GET_MNET_DATA As T0 
+                 Inner Join MNET_WORKFLOW_GET_MNET_DATA As T1 on
+                 T0.HOUSEBOLNUMBER = T1.HOUSEBOLNUMBER  AND T0.INVOICENUMBER = T1.INVOICENUMBER
+                 AND T0.CONTAINERID = T1.CONTAINERID ANd T0.purchaseOrderNumber = T1.purchaseOrderNumber
+                 And T0.PurchaseOrderItem = T1.PurchaseOrderItem
+                 And T0.quantity != T1.quantity
+                 Where T0.ID = C_ID And T1.ID = O_ID;
+                 IF CNT>0 THEN 
+                     V_STATUS = 'D' ;
+                 END IF;
+             
+             END IF ;
+         
+         
+            END IF  ; 
+    ELSE 
+        V_STATUS = 'N' ;
+    END IF ;
+
+    
+ 
+    TT_MNET_STD = SELECT V_MNETID AS MNET_ID , V_STATUS As STATUS FROM DUMMY;
+END

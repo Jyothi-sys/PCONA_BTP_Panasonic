@@ -1,0 +1,221 @@
+<mvc:View controllerName="pojdasel.controller.View1"
+       
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns:core="sap.ui.core"
+    displayBlock="true"
+    xmlns:f="sap.ui.layout.form"
+    xmlns:l="sap.ui.layout"
+    xmlns="sap.m"
+    xmlns:ff="sap.f"
+    xmlns:fb="sap.ui.comp.filterbar">
+    <Shell id="shell">
+        <App id="app">
+            <pages>
+                <Page id="page1" title="{i18n>title}">
+                   
+                    	<VBox class="sapUiSmallMargin">
+		                    <f:SimpleForm id="SimpleForm"
+			editable="true"
+			layout="ResponsiveGridLayout"
+			
+			labelSpanXL="4"
+			labelSpanL="4"
+			labelSpanM="12"
+			labelSpanS="12"
+			adjustLabelSpan="false"
+			emptySpanXL="0"
+			emptySpanL="0"
+			emptySpanM="0"
+			emptySpanS="0"
+			columnsXL="2"
+			columnsL="2"
+			columnsM="1"
+			singleContainerFullSize="true" >
+			<f:content>
+				
+				<Label  id="text1" text="{i18n>text1}" />
+
+				<DatePicker
+                                        required="true"
+                                        id="id_shipplanreqfrom"
+                                        placeholder="Select Date"
+                                        displayFormat="YYYY-MM-dd"
+                                        valueFormat="YYYY-MM-dd"
+                                        width="70%"
+                                        change="handleChangeDate"
+                                    >
+									<layoutData>
+									<l:GridData span="XL2 L3 M4 S4" />
+									</layoutData>
+									</DatePicker>
+				
+				<Label id="text2" text="{i18n>text2}" />
+				<DatePicker
+                                        required="true"
+                                        id="id_shipplanreqto"
+                                        placeholder="Select Date"
+                                        displayFormat="YYYY-MM-dd"
+                                        valueFormat="YYYY-MM-dd"
+                                        width="70%"
+                                        change="handleChangeDate"
+                                    >
+									<layoutData>
+									<l:GridData span="XL2 L3 M4 S4" />
+									</layoutData>
+									</DatePicker>
+					
+				
+				<Label id="text3" text="{i18n>text3}" />
+				<Input id="I3" value="">
+					<layoutData>
+						<l:GridData span="XL2 L3 M4 S4" />
+					</layoutData>
+				</Input>
+				
+				<Label id="text4" text="{i18n>text4}" />
+				<Input id="I4" value="" required="true">
+					<layoutData>
+						<l:GridData span="XL2 L3 M4 S4" />
+					</layoutData>
+				</Input>
+				
+				<Label id="text5" text="{i18n>text5}" />
+				<!-- <DatePicker
+                                        required="true"
+                                        id="id_shipdatefrom"
+                                        placeholder="Select Date"
+                                        displayFormat="YYYY-MM-dd"
+                                        valueFormat="YYYY-MM-dd"
+                                        width="70%"
+                                        change="handleChangeDate"
+                                    > -->
+									<Input id="id_shipdatefrom" value="" required="true" liveChange="handleinput">
+									<layoutData>
+									<l:GridData span="XL2 L3 M4 S4" />
+									</layoutData>
+									<!-- </DatePicker> -->
+									</Input>
+				
+				<!-- <DateRangeSelection
+                                        
+                                        id="id_shipdatefrom"
+                                        placeholder="Select Date"
+                                        displayFormat="MM-dd-YYYY"
+                                        valueFormat="MM-dd-YYYY"
+                                        width="70%"
+                                        change="handleChangeDate"
+                                    >
+                                    <layoutData>
+						<l:GridData span="XL2 L3 M4 S4" />
+					</layoutData>
+                    </DateRangeSelection> -->
+				<Label id="text6" text="{i18n>text6}" />
+				<!-- <DatePicker
+                                        required="true"
+                                        id="id_shipdateto"
+                                        placeholder="Select Date"
+                                        displayFormat="YYYY-MM-dd"
+                                        valueFormat="YYYY-MM-dd"
+                                        width="70%"
+                                        change="handleChangeDate"
+                                    > -->
+									<Input id="id_shipdateto" value="" required="true" liveChange="handleinput1">
+									<layoutData>
+									<l:GridData span="XL2 L3 M4 S4" />
+									</layoutData>
+									<!-- </DatePicker> -->
+									</Input>
+			
+                <Label id="text7" text="{i18n>text7}" />
+				<Input id="I7" value="">
+					<layoutData>
+						<l:GridData span="XL2 L3 M4 S4" />
+					</layoutData>
+				</Input>
+                <Label id="text8" text="{i18n>text8}" />
+				<Input id="I8" value="">
+					<layoutData>
+						<l:GridData span="XL2 L3 M4 S4" />
+					</layoutData>
+				</Input>
+                <Label id="text9" text="{i18n>text9}" />
+				<Input id="I9" value="">
+					<layoutData>
+						<l:GridData span="XL2 L3 M4 S4" />
+					</layoutData>
+				</Input>
+                <Label id="text10" text="{i18n>text10}" />
+				<Input id="I10" value="" required="true">
+					<layoutData>
+						<l:GridData span="XL2 L3 M4 S4" />
+					</layoutData>
+				</Input>
+                <Label id="text11" text="{i18n>text11}" />
+				<Input id="I11" value="" required="true">
+					<layoutData>
+						<l:GridData span="XL2 L3 M4 S4" />
+					</layoutData>
+				</Input>
+                <Label id="text12" text="{i18n>text12}" />
+				<Input id="I12" value="" required="true">
+					<layoutData>
+						<l:GridData span="XL2 L3 M4 S4" />
+					</layoutData>
+				</Input>
+                <Label id="text13" text="{i18n>text13}" />
+				<Input id="I13" value="" required="true">
+					<layoutData>
+						<l:GridData span="XL2 L3 M4 S4" />
+					</layoutData>
+				</Input>
+                <Label id="text14" text="{i18n>text14}" />
+				<Input id="I14" value="">
+					<layoutData>
+						<l:GridData span="XL2 L3 M4 S4" />
+					</layoutData>
+				</Input>
+                <Label id="text15" text="{i18n>text15}" />
+				<Input id="I15" value="">
+					<layoutData>
+						<l:GridData span="XL2 L3 M4 S4" />
+					</layoutData>
+				</Input>
+
+				<Label id="text16" text="{i18n>text16}" />
+				<Input id="I16" value="">
+					<layoutData>
+						<l:GridData span="XL2 L3 M4 S4" />
+					</layoutData>
+				</Input>
+
+                <!-- <Label id="text16" text="{i18n>text16}" />
+				<Input id="I16" value="" required="true">
+					<layoutData>
+						<l:GridData span="XL2 L3 M4 S4" />
+					</layoutData>
+				</Input>
+                <Label id="text17" text="{i18n>text17}" />
+				<Input id="I17" value="">
+					<layoutData>
+						<l:GridData span="XL2 L3 M4 S4" />
+					</layoutData>
+				</Input> -->
+                <Label id="text18" />
+				<Button id="I18" text="GO" type="Emphasized" press="onGo">
+					<layoutData>
+						<l:GridData span="XL2 L3 M4 S4" />
+					</layoutData>
+				</Button>
+			</f:content>
+		</f:SimpleForm>
+        </VBox>
+                                     
+                </Page>
+            </pages>
+        </App>
+    </Shell>
+</mvc:View>
+
+    
+
+

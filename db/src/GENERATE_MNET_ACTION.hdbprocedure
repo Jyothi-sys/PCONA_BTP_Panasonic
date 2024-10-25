@@ -1,0 +1,1079 @@
+PROCEDURE "GENERATE_MNET_ACTION"(
+    IN I_BOLID INTEGER,
+    IN I_BOL NVARCHAR(30),
+    IN I_importShipmentNumber NVARCHAR(30) -- IN I_PO NVARCHAR(30), 
+) --IN V_INVID NVARCHAR(30),IN V_CONID NVARCHAR(30),)
+LANGUAGE SQLSCRIPT SQL SECURITY INVOKER --DEFAULT SCHEMA <default_schema_name>
+--READS SQL DATA 
+-- Feb 15th. Change done for fixing issues introduced in previous build.
+-- Feb 20th. Changes done to address BOL Change same way AS ETA change. All changes marked with "Defect 206part3"
+-- Feb 23rd. Changes done to address back to back ETA AND BOL change.. marked with Defect 206part3a
+-- Mar 4th.  Changes done to address GoodsReciept Reversal... marked with Defect 206part3b
+-- Mar 6th.  Changes done to address GoodsReciept Reversal for ETA & BOL change... marked with Defect 206part3c
+-- Mar 12th. Changes done to address scenario where there is back to Back Eta change, BOL change, followed by an ETA change.Marked with Defect part3d
+-- Mar 20th. Defect 67 Fixed the issue where after H->O in a MNET file containing only one Invoice Line is processed. Currently after an H->O processing, there will be no lines present in Iteration 1, hence OBOLCNT will be 0.
+-- Jul 7th   SIT3 Defect 74 - Cleaning Stored Procedure. Added clarity AND change in Sql for efficiency (SIT3Optimization1). Restructured code to optimize the SQL calls AND address the defect.Removed redundant variables.Replaced Count(*) statements with combination of Exists an SELECT TOP 1 sql
+-- Jul 20th  ReStructured and Rewrote the Logic of USP_GET_MNET_ACTIONS. In the process also incorporated fix for INC0219136.The new program eliminates creating entries in a temporary table, instead we are using temporary table variable for storing processing data. We have eliminated multiple select statements to MNETStatusMonitoring, also eliminated the expensive looping. Code is now much easier to understand and maintainable.
+-- The Select in the Cursor can later be replaced by a view.
+-- Aug 30th  Updated Logic to retrieve latest Previous ( GRNO, GRDate, GRACtion, Grstatus).Similarly logic was changed for Previous Invoice. This was done to fix issue where Qty or Price Change occured after back to back Price Changes or ( Qty or Price Changes after Back to Back Container /BolID change)
+-- Sep 4th   The Subselects for retreiving Max(M_ID) was considering join on Housebolnumber and ContainerId. Both these can change leading to erroneous resultset, hence commented out the join. Also identified that GoodsReceipt Posting/update in MNETStatusMonitoring is not updating invoicelinenumber. A fix has been put in place to take into account (Afterfix for invoiceline for GR update has moved to production, a month or two after that, the distinct statement should be removed for improving query execution and performance.)
+
+AS BEGIN
+Declare C_FLAG_BOLCHANGE Boolean;
+Declare O_DIVERSIONFLAG NVARCHAR(1) = '';
+Declare C_Hold_BOLNum NVARCHAR(20) = '';
+Declare C_Hold_PO NVARCHAR(30) = '';
+Declare C_Hold_ContainerID NVARCHAR(30) = '';
+Declare C_Hold_InvoiceNum NVARCHAR(30) = '';
+Declare O_PREV_CONTAINERID NVARCHAR(30) = '';
+Declare O_INITIALDESTINATIONETA DATE;
+Declare C_INITIALDESTINATIONETA DATE;
+Declare C_SUPPLIERPARTID NVARCHAR(30);
+Declare C_PURCHASEORDERITEM NVARCHAR(5);
+Declare C_QUANTITY NVARCHAR(17);
+Declare C_UNITPRICE DECIMAL(23, 6);
+Declare C_LINENUMBER NVARCHAR(10) = '';
+Declare O_PO NVARCHAR(30);
+Declare O_PURCHASEORDERITEM NVARCHAR(5);
+Declare O_QUANTITY NVARCHAR(17);
+Declare O_UNITPRICE DECIMAL(23, 6);
+Declare C_invoiceCurrencyCode NVARCHAR(5);
+Declare C_extendedCost DECIMAL(23, 6);
+Declare C_partUnitOfMeasurement NVARCHAR(30);
+Declare C_SAP_LINEID_IBD NVARCHAR(30);
+Declare O_PREV_IBDNUMBER NVARCHAR(30);
+Declare O_PREV_SAP_LINEID_GR NVARCHAR(30);
+Declare O_PREV_GR_DATE NVARCHAR(30);
+Declare O_PREV_SAP_GRNUMBER NVARCHAR(30);
+Declare O_PREV_SAP_INVOICENUMBER NVARCHAR(30);
+Declare O_PREV_INV_DATE NVARCHAR(30);
+Declare O_PREV_FISCALYEAR NVARCHAR(30);
+Declare O_PREV_GRACTION NVARCHAR(10);
+Declare O_PREV_GRSTATUS NVARCHAR(10);
+Declare O_PREV_BTP_IBDACTION NVARCHAR(10);
+Declare O_PREV_BTP_IBDSTATUS NVARCHAR(10);
+Declare O_PREV_INVOICEACTION NVARCHAR(10);
+Declare O_PREV_INVOICESTATUS NVARCHAR(10);
+DECLARE V_NEXTID INTEGER;
+DECLARE Error_Message NVARCHAR(10000);
+-- CREATE LOCAL TEMPORARY TABLE VARIABLE 
+Declare TTV_MNET_ACTION TABLE(
+        "BOLID" INTEGER,
+        "BOL" NVARCHAR(30),
+        "INVID" NVARCHAR(30),
+        "CONID" NVARCHAR(30),
+        "PO" NVARCHAR(30),
+        "ACTION" NVARCHAR(10),
+        "DOCNUM" NVARCHAR(30),
+        "DATE" NVARCHAR(30),
+        "FISCALYEAR" NVARCHAR(10),
+        "REVERSALREASON" NVARCHAR(5),
+        "OBJECTTYPE" NVARCHAR(30),
+        "RID" INTEGER,
+        "LINENUMBER" NVARCHAR(30)
+    );
+--CREATE LOCAL TEMPORARY TABLE :TTV_MNET_ITEM_IBD
+Declare TTV_MNET_ITEM_IBD TABLE(
+        "BOLID" INTEGER,
+        "BOL" NVARCHAR(30),
+        "INVID" NVARCHAR(30),
+        "CONID" NVARCHAR(30),
+        "PO" NVARCHAR(30),
+        "Action" NVARCHAR(10),
+        "IBD_NO" NVARCHAR(30),
+        "IBD_LINE" NVARCHAR(30),
+        "lineNumber" NVARCHAR(10),
+        "Material" NVARCHAR(30),
+        "PURCHASEORDER" NVARCHAR(30),
+        "PURCHASEORDERITEM" NVARCHAR(5),
+        "QuantityInPURCHASEORDERUnit" NVARCHAR(10),
+        "ActualDeliveryQuantity" NVARCHAR(10),
+        "Batch" NVARCHAR(10),
+        "Plant" NVARCHAR(10),
+        "ReferenceSDDocument" NVARCHAR(30),
+        "ReferenceSDDocumentItem" NVARCHAR(5),
+        "InventoryValuationType" NVARCHAR(30)
+    );
+--CREATE LOCAL TEMPORARY TABLE :TTV_MNET_ITEM_INV
+Declare TTV_MNET_ITEM_INV TABLE(
+        "BOLID" INTEGER,
+        "BOL" NVARCHAR(30),
+        "INVID" NVARCHAR(30),
+        "CONID" NVARCHAR(30),
+        "PO" NVARCHAR(30),
+        "Action" NVARCHAR(10),
+        "IBD_LINE" NVARCHAR(30),
+        "lineNumber" NVARCHAR(10),
+        "Material" NVARCHAR(30),
+        "PURCHASEORDER" NVARCHAR(30),
+        "PURCHASEORDERITEM" NVARCHAR(5),
+        "SupplierInvoiceItem" NVARCHAR(10),
+        "Plant" NVARCHAR(10),
+        "TaxCode" NVARCHAR(10),
+        "DocumentCurrency" NVARCHAR(30),
+        "SupplierInvoiceItemAmount" NVARCHAR(10),
+        "PURCHASEORDERQuantityUnit" NVARCHAR(30),
+        "QuantityInPURCHASEORDERUnit" NVARCHAR(10),
+        "SupplierInvoiceItemText" NVARCHAR(10)
+    );
+DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN -- O_STATUS = 'E';
+SELECT::SQL_ERROR_MESSAGE into Error_Message
+FROM DUMMY;
+ROLLBACK;
+-- This is done so that incomplete processing of MNET ACTIONS do not occur. We are doing a delete of entries in table and if there is an error while insert, we do not want the delete committed.
+IF (
+    C_LINENUMBER IS NULL
+    AND C_Hold_InvoiceNum IS NULL
+) THEN
+UPDATE BTP_PANASONIC_INVOICELINE AS B
+SET B.STATUS = 'E'
+WHERE B.INVOICENUMBER_HOUSEBOLNUMBER_ID = I_BOLID
+    AND B.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = I_BOL
+    AND B.PURCHASEORDERNUMBER = C_Hold_PO;
+ELSE
+UPDATE BTP_PANASONIC_INVOICELINE AS B
+SET B.STATUS = 'E'
+WHERE B.INVOICENUMBER_HOUSEBOLNUMBER_ID = I_BOLID
+    AND B.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = I_BOL
+    AND B.PURCHASEORDERNUMBER = C_Hold_PO
+    AND B.LINENUMBER = C_LINENUMBER
+    AND B.INVOICENUMBER_INVOICENUMBER = C_Hold_InvoiceNum;
+END IF;
+SELECT "MNetStatusMonitoring_ID".NEXTVAL INTO V_NEXTID
+FROM DUMMY;
+INSERT INTO "BTP_PANASONIC_MNETSTATUSMONITORING" (
+        CREATEDAT,
+        ID,
+        BOLID,
+        HOUSEBOLNUMBER,
+        DATE,
+        OBJECTTYPE,
+        STATUS,
+        MESSAGE,
+        IMPORTSHIPMENTNUMBER
+    )
+VALUES (
+        NOW(),
+        V_NEXTID,
+        I_BOLID,
+        I_BOL,
+        NOW(),
+        'VALIDATION',
+        'E',
+        CONCAT('GENERATE_MNET_ACTION - SQL  :', Error_Message),
+        I_IMPORTSHIPMENTNUMBER
+    );
+INSERT INTO "BTP_PANASONIC_MNETSTATUSMONITORINGITEM" (
+        ID_ID,
+        LINEID,
+        LINENUMBER,
+        MATERIAL,
+        PURCHASEORDER,
+        PURCHASEORDERITEM
+    )
+Select V_NEXTID AS ID_ID,
+    ROW_NUMBER() OVER (
+        ORDER BY T0.LINENUMBER ASC
+    ) AS LINEID,
+    T0.LINENUMBER,
+    T0.SUPPLIERPARTID,
+    T0.PURCHASEORDERNUMBER,
+    T0.ORDERITEMNBR
+from BTP_PANASONIC_INVOICELINE As T0
+Where T0.INVOICENUMBER_HOUSEBOLNUMBER_ID = I_BOLID
+    And T0.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = I_BOL
+    And T0.PURCHASEORDERNUMBER = C_Hold_PO;
+COMMIT;
+END;
+--- MAIN Block Begins  
+BEGIN
+Declare Cursor C_InvoicelineResultSet For (
+        SELECT T0.INVOICENUMBER_HOUSEBOLNUMBER_ID AS BOLID,
+            IFNULL(LATESTBOL.MAX_ID, 0) AS PREV_BOLID,
+            0 AS PREV_CONBOLID,
+            T0.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER AS BOLNO,
+            IFNULL(LATESTBOL.HOUSEBOLNUMBER, '') AS PREV_BOLNO,
+            T1.FLAG_BOLCHANGE AS FLAG_BOLCHANGE,
+            T0.INVOICENUMBER_INVOICENUMBER AS INVOICENUM,
+            IFNULL(LATESTBOL.INVOICENUMBER, '') AS PREV_INVOICENUM,
+            T0.LineNumber AS LineNumber,
+            T0.CONTAINERID,
+            IFNULL(LATESTBOL.CONTAINERID, '') AS PREV_CONTAINERID,
+            LATESTBOL.DiversionFlag AS Prev_DiversionFlag,
+            T1.INITIALDESTINATION,
+            T1.INITIALDESTINATIONETA,
+            LATESTBOL.PREV_INITIALDESTINATIONETA AS PREV_INITIALDESTINATIONETA,
+            T0.PURCHASEORDERNUMBER,
+            IFNULL(LATESTBOL.PURCHASEORDERNUMBER, '') AS PREV_PURCHASEORDERNUMBER,
+            T0.orderitemnbr AS PURCHASEORDERITEM,
+            LATESTBOL.orderitemnbr AS PREV_PURCHASEORDERITEM,
+            T0.buyerPartID,
+            T0.quantity,
+            IFNULL(LATESTBOL.quantity, 0) AS PREV_QUANTITY,
+            -- T0.partUnitOfMeasurement,
+            P2.PURCHASEORDERQUANTITYUNIT AS partUnitOfMeasurement,
+            T0.extendedCost,
+            T0.unitPrice,
+            IFNULL(LATESTBOL.unitPrice, 0) AS PREV_UNITPRICE,
+            T0.supplierPartID,
+            T1.Action,
+            T7.PO_NEW AS PO_NEW,
+            T7.POITEM_NEW AS POITEM_NEW,
+            LATESTBOL.PO_NEW AS PREV_PO_NEW,
+            LATESTBOL.POITEM_NEW AS PREV_POITEM_NEW,
+            T8.PASCOriginalPartsNbr,
+            P2.ValuationType,
+            P2.Plant,
+            T9.invoiceCurrencyCode,
+            T0.BTP_IBDNUMBER,
+            T0.SAP_LINEID_IBD,
+            T0.BTP_IBDACTION,
+            T0.BTP_IBDSTATUS,
+            T0.BTP_GRNUMBER,
+            T0.SAP_LINEID_GR,
+            T0.BTP_GRACTION,
+            T0.BTP_GRSTATUS,
+            T0.BTP_INVOICENUMBER,
+            T0.SAP_LINEID_INVOICE,
+            T0.BTP_INVOICEACTION,
+            T0.BTP_INVOICESTATUS,
+            IFNULL(LATESTBOL.PREV_SAP_IBDNUMBER, '') AS PREV_SAP_IBDNUMBER,
+            IFNULL(LATESTBOL.PREV_SAP_LINEID_IBD, '') AS PREV_SAP_LINEID_IBD,
+            IFNULL(LATESTBOL.PREV_BTP_IBDACTION, '') AS PREV_BTP_IBDACTION,
+            IFNULL(LATESTBOL.PREV_BTP_IBDSTATUS, '') AS PREV_BTP_IBDSTATUS,
+            IFNULL(LATESTBOL.PREV_SAP_GRNUMBER, '') AS PREV_SAP_GRNUMBER,
+            IFNULL(LATESTBOL.PREV_SAP_LINEID_GR, '') AS PREV_SAP_LINEID_GR,
+            IFNULL(LATESTBOL.PREV_GRACTION, '') AS PREV_GRACTION,
+            IFNULL(LATESTBOL.PREV_GRSTATUS, '') AS PREV_GRSTATUS,
+            LATESTBOL.GR_DATE AS PREV_GR_DATE,
+            IFNULL(LATESTBOL.INV_OBJECTREFNO, '') AS PREV_SAP_INVOICENUMBER,
+            IFNULL(LATESTBOL.PREV_INVOICEACTION, '') AS PREV_INVOICEACTION,
+            IFNULL(LATESTBOL.PREV_INVOICESTATUS, '') AS PREV_INVOICESTATUS,
+            LATESTBOL.INV_DATE AS PREV_INV_DATE,
+            LATESTBOL.INV_FISCALYEAR AS PREV_FISCALYEAR
+        FROM BTP_PANASONIC_INVOICELINE AS T0
+            INNER JOIN BTP_PANASONIC_BOLHEADER AS T1 ON T0.INVOICENUMBER_HOUSEBOLNUMBER_ID = T1.ID
+            AND T0.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = T1.HOUSEBOLNUMBER
+            INNER JOIN BTP_PANASONIC_ADDITIONALINVOICELINE AS T8 ON T0.partID = T8.partID_partID
+            AND T0.invoiceNumber_invoiceNumber = T8.partID_invoiceNumber_invoiceNumber
+            AND T0.lineNumber = T8.partID_lineNumber
+            AND T0.invoiceNumber_houseBOLNumber_houseBOLNumber = T8.partID_invoiceNumber_houseBOLNumber_houseBOLNumber
+            AND T0.invoiceNumber_houseBOLNumber_ID = T8.partID_invoiceNumber_houseBOLNumber_ID
+            INNER JOIN BTP_PANASONIC_INVOICEHEADER AS T9 ON T0.INVOICENUMBER_HOUSEBOLNUMBER_ID = T9.HOUSEBOLNUMBER_ID
+            AND T0.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = T9.HOUSEBOLNUMBER_HOUSEBOLNUMBER
+            AND T0.invoiceNumber_invoiceNumber = T9.invoiceNumber
+            LEFT OUTER JOIN (
+                (
+                    SELECT T2.INVOICENUMBER_HOUSEBOLNUMBER_ID AS MAX_ID,
+                        T2.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER AS HOUSEBOLNUMBER,
+                        T2.INVOICENUMBER_INVOICENUMBER AS INVOICENUMBER,
+                        T2.ContainerID AS ContainerID,
+                        T2.LINENUMBER AS LINENUMBER,
+                        T2.PURCHASEORDERNUMBER,
+                        T2.orderitemnbr,
+                        T2.DiversionFlag,
+                        T3.importShipmentNumber,
+                        T3.INITIALDESTINATIONETA AS PREV_INITIALDESTINATIONETA,
+                        T6.PO_NEW,
+                        T6.POITEM_NEW,
+                        T2.quantity,
+                        T2.unitPrice,
+                        T2.BTP_IBDNUMBER,
+                        T2.SAP_LINEID_IBD,
+                        T2.BTP_IBDACTION,
+                        T2.BTP_IBDSTATUS,
+                        T2.BTP_GRNUMBER,
+                        T2.SAP_LINEID_GR,
+                        T2.BTP_GRACTION,
+                        T2.BTP_GRSTATUS,
+                        T2.BTP_INVOICENUMBER,
+                        T2.SAP_LINEID_INVOICE,
+                        T2.BTP_INVOICEACTION,
+                        T2.BTP_INVOICESTATUS,
+                        DataSet_IBD.PREV_SAP_IBDNUMBER AS PREV_SAP_IBDNUMBER,
+                        DataSet_IBD.PREV_SAP_LINEID_IBD AS PREV_SAP_LINEID_IBD,
+                        DataSet_IBD.PREV_BTP_IBDACTION AS PREV_BTP_IBDACTION,
+                        DataSet_IBD.PREV_BTP_IBDSTATUS AS PREV_BTP_IBDSTATUS,
+                        DataSet_GR.OBJECTTYPE AS GR_OBJECTTYPE,
+                        DataSet_GR.PREV_GRACTION,
+                        DataSet_GR.PREV_GRSTATUS,
+                        DataSet_GR.PREV_SAP_GRNUMBER,
+                        DataSet_GR.PREV_SAP_LINEID AS PREV_SAP_LINEID_GR,
+                        DataSet_GR.GR_DATE,
+                        DataSet_INV.OBJECTTYPE AS INV_OBJECTTYPE,
+                        DataSet_INV.OBJECTREFNO AS INV_OBJECTREFNO,
+                        Replace(
+                            SUBSTRING(DataSet_INV.OBJECTREFDATE, 0, 10) || 'T' || SUBSTRING(DataSet_INV.OBJECTREFDATE, 11, 9) || 'Z',
+                            ' ',
+                            ''
+                        ) AS INV_DATE,
+                        DataSet_INV.FISCALYEAR AS INV_FISCALYEAR,
+                        DataSet_INV.PREV_INVOICEACTION,
+                        DataSet_INV.PREV_INVOICESTATUS
+                    FROM BTP_PANASONIC_INVOICELINE AS T2
+                        INNER JOIN BTP_PANASONIC_BOLHEADER AS T3 ON T2.INVOICENUMBER_HOUSEBOLNUMBER_ID = T3.ID
+                        AND T2.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = T3.HOUSEBOLNUMBER
+                        INNER JOIN (
+                            (
+                                SELECT Max(T4.INVOICENUMBER_HOUSEBOLNUMBER_ID) AS MAX_ID,
+                                    T4.INVOICENUMBER_INVOICENUMBER AS INVOICENUMBER,
+                                    T4.LINENUMBER AS LINENUMBER,
+                                    T5.importShipmentNumber AS importShipmentNumber
+                                FROM BTP_PANASONIC_INVOICELINE AS T4
+                                    INNER JOIN BTP_PANASONIC_BOLHEADER AS T5 ON T4.INVOICENUMBER_HOUSEBOLNUMBER_ID = T5.ID
+                                    AND T4.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = T5.HOUSEBOLNUMBER
+                                WHERE T4.INVOICENUMBER_HOUSEBOLNUMBER_ID < I_BOLID
+                                    AND T4.INVOICENUMBER_HOUSEBOLNUMBER_ID = T5.ID
+                                    AND T4.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = T5.HOUSEBOLNUMBER
+                                    AND T5.importShipmentNumber = I_importShipmentNumber
+                                GROUP BY T5.importShipmentNumber,
+                                    T4.INVOICENUMBER_INVOICENUMBER,
+                                    T4.LineNumber
+                            )
+                        ) AS InvoiceLineSet ON T2.INVOICENUMBER_HOUSEBOLNUMBER_ID = InvoiceLineSet.MAX_ID
+                        AND T2.INVOICENUMBER_INVOICENUMBER = InvoiceLineSet.INVOICENUMBER
+                        AND T2.LINENUMBER = InvoiceLineSet.LINENUMBER
+                        LEFT OUTER JOIN (
+                            (
+                                SELECT T14.BOLID,
+                                    T14.houseBOLNumber,
+                                    TMaxID_DataSet_IBD.invoicenumber,
+                                    TMaxID_DataSet_IBD.LineNumber,
+                                    T18.SAP_LINEID AS PREV_SAP_LINEID_IBD,
+                                    T14.ContainerID,
+                                    T14.OBJECTTYPE,
+                                    T14.OBJECTREFDATE,
+                                    T14.OBJECTREFNO AS PREV_SAP_IBDNUMBER,
+                                    T14.Action AS PREV_BTP_IBDACTION,
+                                    T14.Status AS PREV_BTP_IBDStatus
+                                FROM BTP_PANASONIC_MNETSTATUSMONITORING AS T14
+                                    INNER JOIN BTP_PANASONIC_MNETSTATUSMONITORINGITEM AS T18 ON T14.ID = T18.ID_ID
+                                    INNER JOIN (
+                                        (
+                                            SELECT MAX(T15.ID) AS M_ID,
+                                                T15.INVOICENUMBER,
+                                                T17.LineNumber
+                                            FROM BTP_PANASONIC_MNETSTATUSMONITORING AS T15
+                                                INNER JOIN BTP_PANASONIC_MNETSTATUSMONITORINGITEM AS T16 ON T15.ID = T16.ID_ID
+                                                INNER JOIN BTP_PANASONIC_INVOICELINE AS T17 ON T17.INVOICENUMBER_HOUSEBOLNUMBER_ID = T15.BOLID
+                                                AND T17.INVOICENUMBER_HOUSEBOLNUMBER_ID < I_BOLID
+                                             --   AND T17.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = T15.HOUSEBOLNUMBER
+                                                AND T17.INVOICENUMBER_INVOICENUMBER = T15.INVOICENUMBER
+                                                AND T17.LINENUMBER = T16.LINENUMBER
+                                             --   AND T17.ContainerID = T15.CONTAINERID
+                                                AND T17.DiversionFlag is NULL
+                                                AND (
+                                                    T15.OBJECTTYPE = 'InboundDelivery'
+                                                    AND T17.BTP_IBDNUMBER = T15.OBJECTREFNO
+                                                )
+                                                AND T15.STATUS = 'S'
+                                            GROUP BY T15.importShipmentNumber,
+                                                T15.INVOICENUMBER,
+                                                T17.Linenumber
+                                        )
+                                    ) AS TMaxID_DataSet_IBD ON TMaxID_DataSet_IBD.M_ID = T14.ID
+                                    AND TMaxID_DataSet_IBD.INVOICENUMBER = T14.INVOICENUMBER
+                                    AND TMaxID_DataSet_IBD.LineNumber = T18.LINENUMBER
+                            )
+                        ) AS DataSet_IBD ON DataSet_IBD.INVOICENUMBER = T2.INVOICENUMBER_INVOICENUMBER
+                        AND DataSet_IBD.LineNumber = T2.LineNumber
+                        AND (DataSet_IBD.OBJECTTYPE = 'InboundDelivery')
+                        LEFT OUTER JOIN (
+                            (
+                                SELECT T11.BOLID,
+                                    T11.houseBOLNumber,
+                                    TMaxID_DataSet_GR.invoicenumber,
+                                    TMaxID_DataSet_GR.LineNumber,
+                                    TMaxID_DataSet_GR.SAP_LINEID AS PREV_SAP_LINEID,
+                                    T11.ContainerID,
+                                    T11.OBJECTTYPE,
+                                    T11.OBJECTREFDATE,
+                                    T11.FISCALYEAR,
+                                    T11.ACTION AS PREV_GRACTION,
+                                    T11.Status AS PREV_GRSTATUS,
+                                    T11.GR_NO AS PREV_SAP_GRNUMBER,
+                                    T11.GR_DATE
+                                FROM BTP_PANASONIC_MNETSTATUSMONITORING AS T11
+                                    INNER JOIN (
+                                        (
+                                            SELECT MAX(T10.ID) AS M_ID,
+                                                T10.INVOICENUMBER,
+                                                T12.LineNumber,
+                                                T13.SAP_LINEID
+                                            FROM BTP_PANASONIC_MNETSTATUSMONITORING AS T10
+                                                INNER JOIN BTP_PANASONIC_MNETSTATUSMONITORINGITEM AS T13 ON T10.ID = T13.ID_ID
+                                                INNER JOIN BTP_PANASONIC_INVOICELINE AS T12 ON T12.INVOICENUMBER_HOUSEBOLNUMBER_ID = T10.BOLID
+                                                AND T12.INVOICENUMBER_HOUSEBOLNUMBER_ID < I_BOLID
+                                             --   AND T12.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = T10.HOUSEBOLNUMBER
+                                                AND T12.INVOICENUMBER_INVOICENUMBER = T10.INVOICENUMBER
+                                             --   AND T12.LINENUMBER = T13.LINENUMBER           -- Because GRPosting is not updating invoicelinenumber in MonitoringStatusitem,a workaround put in place. This will not work for Diverted lines, but we are not expected to reverse GRs for diverted ines in Workflow 
+                                                AND (T12.LINENUMBER = T13.LINENUMBER OR T13.LINENUMBER IS NULL)
+                                                AND T13.PurchaseOrder = T12.purchaseordernumber
+                                                AND T13.PurchaseOrderItem = T12.orderitemnbr
+                                             --   AND T12.ContainerID = T10.CONTAINERID
+                                                AND (
+                                                    T10.OBJECTTYPE = 'GoodsReceipt'
+                                                    AND T12.BTP_GRNUMBER = T10.GR_NO
+                                                )
+                                                AND T10.STATUS = 'S'
+                                            GROUP BY T10.importShipmentNumber,
+                                                T10.INVOICENUMBER,
+                                                T12.Linenumber,
+                                                T13.SAP_LINEID
+                                        )
+                                    ) AS TMaxID_DataSet_GR ON TMaxID_DataSet_GR.M_ID = T11.ID
+                                    AND TMaxID_DataSet_GR.INVOICENUMBER = T11.INVOICENUMBER
+                            )
+                        ) AS DataSet_GR ON DataSet_GR.INVOICENUMBER = T2.INVOICENUMBER_INVOICENUMBER
+                        AND DataSet_GR.LineNUmber = T2.LineNumber
+                        AND (DataSet_GR.OBJECTTYPE = 'GoodsReceipt')
+                        LEFT OUTER JOIN (
+                            (
+                                SELECT T11.BOLID,
+                                    T11.houseBOLNumber,
+                                    TMaxID_DataSet_INV.invoicenumber,
+                                    TMaxID_DataSet_INV.LineNumber,
+                                    T11.ContainerID,
+                                    T11.OBJECTTYPE,
+                                    T11.OBJECTREFNO,
+                                    T11.OBJECTREFDATE,
+                                    T11.FISCALYEAR,
+                                    T11.ACTION AS PREV_INVOICEACTION,
+                                    T11.Status AS PREV_INVOICESTATUS
+                                FROM BTP_PANASONIC_MNETSTATUSMONITORING AS T11
+                                    INNER JOIN (
+                                        (
+                                            SELECT MAX(T10.ID) AS M_ID,
+                                                T10.INVOICENUMBER,
+                                                T12.LineNumber
+                                            FROM BTP_PANASONIC_MNETSTATUSMONITORING AS T10
+                                                LEFT JOIN BTP_PANASONIC_MNETSTATUSMONITORINGITEM AS T13 ON T10.ID = T13.ID_ID
+                                                INNER JOIN BTP_PANASONIC_INVOICELINE AS T12 ON T12.INVOICENUMBER_HOUSEBOLNUMBER_ID = T10.BOLID
+                                                AND T12.INVOICENUMBER_HOUSEBOLNUMBER_ID < I_BOLID
+                                             --   AND T12.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = T10.HOUSEBOLNUMBER
+                                                AND T12.INVOICENUMBER_INVOICENUMBER = T10.INVOICENUMBER
+                                                AND (
+                                                    T12.LINENUMBER = T13.LINENUMBER
+                                                    OR T13.LINENUMBER IS NULL
+                                                )
+                                             --   AND T12.ContainerID = T10.CONTAINERID
+                                                AND (
+                                                    T10.OBJECTTYPE = 'Invoice'
+                                                    AND (T12.BTP_INVOICENUMBER = T10.OBJECTREFNO) --OR T12.BTP_INVOICENUMBER IS NULL)
+                                                )
+                                                AND T10.STATUS = 'S'
+                                            GROUP BY T10.importShipmentNumber,
+                                                T10.INVOICENUMBER,
+                                                T12.Linenumber
+                                        )
+                                    ) AS TMaxID_DataSet_INV ON TMaxID_DataSet_INV.M_ID = T11.ID
+                                    AND TMaxID_DataSet_INV.INVOICENUMBER = T11.INVOICENUMBER
+                            )
+                        ) AS DataSet_INV ON DataSet_INV.INVOICENUMBER = T2.INVOICENUMBER_INVOICENUMBER
+                        AND DataSet_INV.LineNUmber = T2.LineNumber
+                        AND (DataSet_INV.OBJECTTYPE = 'Invoice')
+                        LEFT OUTER JOIN BTP_PANASONIC_POCROSSREF AS T6 ON T2.PURCHASEORDERNUMBER = T6.PO_OLD
+                        AND T2.orderitemnbr = T6.POITEM_OLD
+                        AND IFNULL(T6.ISDELETE, 'N') = 'N'
+                )
+            ) AS LATESTBOL ON T0.INVOICENUMBER_INVOICENUMBER = LATESTBOL.INVOICENUMBER
+            AND T0.LINENUMBER = LATESTBOL.LINENUMBER
+            AND T1.importShipmentNumber = LATESTBOL.importShipmentNumber
+            LEFT OUTER JOIN BTP_PANASONIC_A_PURCHASEORDERITEM AS P2 ON T0.PURCHASEORDERNUMBER = P2.PURCHASEORDER_PURCHASEORDER
+            AND T0.orderItemNbr = P2.PURCHASEORDERITEM
+            LEFT OUTER JOIN BTP_PANASONIC_POCROSSREF AS T7 ON T0.PURCHASEORDERNUMBER = T7.PO_OLD
+            AND T0.orderitemnbr = T7.POITEM_OLD
+            AND IFNULL(T7.ISDELETE, 'N') = 'N'
+        WHERE T0.INVOICENUMBER_HOUSEBOLNUMBER_ID = I_BOLID
+            AND T1.importShipmentNumber = I_importShipmentNumber
+            AND (
+                (T0.Status IN ('C', 'O', 'P', 'E'))
+                AND T1.Status = 'O'
+            )
+            AND (
+                (IFNULL(T8.PASCOriginalPartsNbr, 'X') = 'X')
+                OR (T0.orderitemnbr <> T8.orderitemnbr)
+            )
+        ORDER BY
+            /*  	    AND T0.PURCHASEORDERNUMBER = I_PO */
+            T0.INVOICENUMBER_INVOICENUMBER ASC,
+            T0.LINENUMBER ASC,
+            T0.CONTAINERID ASC,
+            T1.INITIALDESTINATIONETA ASC,
+            T0.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER ASC,
+            T0.INVOICENUMBER_HOUSEBOLNUMBER_ID ASC,
+            T0.PURCHASEORDERNUMBER ASC
+    );
+FOR cur_row AS C_InvoicelineResultSet DO C_Hold_BOLNum = cur_row.BOLNO;
+C_Hold_InvoiceNum = cur_row.INVOICENUM;
+C_Hold_ContainerID = cur_row.ContainerID;
+C_Hold_PO = cur_row.PURCHASEORDERNUMBER;
+-- Initializing variables for Debug purposes only
+O_INITIALDESTINATIONETA = cur_row.PREV_INITIALDESTINATIONETA;
+C_INITIALDESTINATIONETA = cur_row.INITIALDESTINATIONETA;
+C_FLAG_BOLCHANGE = cur_row.FLAG_BOLCHANGE;
+O_DIVERSIONFLAG = cur_row.Prev_DiversionFlag;
+C_QUANTITY = cur_row.quantity;
+O_QUANTITY = cur_row.PREV_QUANTITY;
+O_PREV_CONTAINERID = cur_row.PREV_CONTAINERID;
+O_UNITPRICE = cur_row.PREV_UNITPRICE;
+C_UNITPRICE = cur_row.unitPrice;
+C_SUPPLIERPARTID = cur_row.supplierPartID;
+O_PO = cur_row.PREV_PURCHASEORDERNUMBER;
+O_PURCHASEORDERITEM = cur_row.PREV_PURCHASEORDERITEM;
+C_PURCHASEORDERITEM = cur_row.PURCHASEORDERITEM;
+O_PREV_GRACTION = cur_row.PREV_GRACTION;
+O_PREV_GRSTATUS = cur_row.PREV_GRSTATUS;
+O_PREV_IBDNUMBER = cur_row.PREV_SAP_IBDNUMBER;
+O_PREV_BTP_IBDACTION = cur_row.PREV_BTP_IBDACTION;
+O_PREV_BTP_IBDSTATUS = cur_row.PREV_BTP_IBDSTATUS;
+O_PREV_INVOICEACTION = cur_row.PREV_INVOICEACTION;
+O_PREV_INVOICESTATUS = cur_row.PREV_INVOICESTATUS;
+C_invoiceCurrencyCode = cur_row.invoicecurrencyCode;
+-- Documentcurrency
+C_extendedCost = cur_row.extendedCost;
+-- SupplierInvoiceItemAmount,
+C_partUnitOfMeasurement = cur_row.partUnitOfMeasurement;
+-- PurchaseOrderQuantityUnit,
+C_LINENUMBER = cur_row.lineNumber;
+-- SupplierInvoiceItemText
+C_SAP_LINEID_IBD = cur_row.SAP_LINEID_IBD;
+O_PREV_SAP_LINEID_GR = cur_row.PREV_SAP_LINEID_GR;
+O_PREV_GR_DATE = cur_row.PREV_GR_DATE;
+O_PREV_SAP_GRNUMBER = cur_row.PREV_SAP_GRNUMBER;
+O_PREV_SAP_INVOICENUMBER = cur_row.PREV_SAP_INVOICENUMBER;
+O_PREV_INV_DATE = cur_row.PREV_INV_DATE;
+O_PREV_FISCALYEAR = cur_row.PREV_FISCALYEAR;
+IF (cur_row.Action = 'A')
+OR (
+    cur_row.Action = 'M'
+    AND (
+        cur_row.PREV_BOLID = 0
+        OR cur_row.INVOICENUM <> cur_row.PREV_INVOICENUM
+    )
+) THEN
+INSERT INTO :TTV_MNET_ACTION
+SELECT cur_row.BOLID AS BOLID,
+    cur_row.BOLNO AS BOL,
+    cur_row.INVOICENUM AS INVID,
+    cur_row.ContainerID AS CONID,
+    cur_row.PURCHASEORDERNUMBER AS PO,
+    'C' AS "ACTION",
+    null "DOCNUM",
+    null "DATE",
+    null "FISCALYEAR",
+    null "REVERSALREASON",
+    'InboundDelivery' "OBJECTTYPE",
+    5,
+    '0'
+FROM DUMMY;
+INSERT INTO :TTV_MNET_ACTION
+SELECT cur_row.BOLID AS BOLID,
+    cur_row.BOLNO AS BOL,
+    cur_row.INVOICENUM AS INVID,
+    cur_row.ContainerID AS CONID,
+    cur_row.PURCHASEORDERNUMBER AS PO,
+    'C' AS "ACTION",
+    null "DOCNUM",
+    null "DATE",
+    null "FISCALYEAR",
+    '03' "REVERSALREASON",
+    'Invoice' "OBJECTTYPE",
+    3,
+    cur_row.lineNumber as LineNumber
+FROM DUMMY;
+INSERT INTO :TTV_MNET_ITEM_IBD
+SELECT cur_row.BOLID AS BOLID,
+    cur_row.BOLNO AS BOL,
+    cur_row.INVOICENUM AS INVID,
+    cur_row.ContainerID AS CONID,
+    cur_row.PURCHASEORDERNUMBER AS PO,
+    'C' AS "ACTION",
+    null as "IBD_NO",
+    null as "IBD_LINE",
+    cur_row.lineNumber,
+    cur_row.supplierPartID,
+    IFNULL(cur_row.PO_NEW, cur_row.PURCHASEORDERNUMBER) as PURCHASEORDERNUMBER,
+    IFNULL(cur_row.POITEM_NEW, cur_row.PURCHASEORDERITEM) as PURCHASEORDERITEM,
+    cur_row.quantity,
+    cur_row.quantity,
+    null as "Batch",
+    cur_row.Plant,
+    IFNULL(cur_row.PO_NEW, cur_row.PURCHASEORDERNUMBER) as PURCHASEORDERNUMBER,
+    IFNULL(cur_row.POITEM_NEW, cur_row.PURCHASEORDERITEM) as PURCHASEORDERITEM,
+    cur_row.ValuationType
+FROM DUMMY;
+INSERT INTO :TTV_MNET_ITEM_INV
+SELECT cur_row.BOLID AS BOLID,
+    cur_row.BOLNO AS BOL,
+    cur_row.INVOICENUM AS INVID,
+    cur_row.ContainerID AS CONID,
+    cur_row.PURCHASEORDERNUMBER AS PO,
+    'C' AS "ACTION",
+    null as "IBD_LINE",
+    cur_row.lineNumber,
+    cur_row.supplierPartID,
+    IFNULL(cur_row.PO_NEW, cur_row.PURCHASEORDERNUMBER) as purchaseOrderNumber,
+    IFNULL(cur_row.POITEM_NEW, cur_row.PURCHASEORDERITEM) as PurchaseOrderItem,
+    '1' as SupplierInvoiceItem,
+    cur_row.Plant,
+    'I0' as TaxCode,
+    cur_row.invoicecurrencyCode as Documentcurrency,
+    cur_row.extendedCost as SupplierInvoiceItemAmount,
+    cur_row.partUnitOfMeasurement as PurchaseOrderQuantityUnit,
+    cur_row.quantity as QuantityInPurchaseOrderUnit,
+    cur_row.lineNumber as SupplierInvoiceItemText
+FROM DUMMY;
+ELSEIF (cur_row.Action = 'M') THEN -- Action = M
+IF (
+    (
+        cur_row.FLAG_BOLCHANGE = true
+        OR cur_row.PREV_INITIALDESTINATIONETA <> cur_row.INITIALDESTINATIONETA
+        OR cur_row.Prev_DiversionFlag = 'D'
+    )
+    AND (
+        cur_row.quantity = cur_row.PREV_QUANTITY
+        AND cur_row.CONTAINERID = cur_row.PREV_CONTAINERID
+        AND cur_row.unitPrice = cur_row.PREV_UNITPRICE
+        AND cur_row.PURCHASEORDERNUMBER = cur_row.PREV_PURCHASEORDERNUMBER
+        AND cur_row.PURCHASEORDERITEM = cur_row.PREV_PURCHASEORDERITEM
+        AND (
+            (
+                (
+                    cur_row.PREV_BTP_IBDACTION = 'C'
+                    OR cur_row.PREV_BTP_IBDACTION = 'U'
+                )
+                AND cur_row.PREV_BTP_IBDSTATUS = 'S'
+            )
+            OR (
+                cur_row.PREV_BTP_IBDACTION is null
+                AND cur_row.PREV_BTP_IBDSTATUS is null
+            )
+        )
+        AND cur_row.PREV_SAP_IBDNUMBER != ''
+    )
+) THEN -- Provide Guidance for Doing Update to existing IBD only.
+INSERT INTO :TTV_MNET_ACTION
+SELECT cur_row.BOLID AS BOLID,
+    cur_row.BOLNO AS BOL,
+    cur_row.INVOICENUM AS INVID,
+    cur_row.ContainerID AS CONID,
+    cur_row.PURCHASEORDERNUMBER AS PO,
+    'U' AS "ACTION",
+    cur_row.PREV_SAP_IBDNUMBER AS "DOCNUM",
+    null "DATE",
+    null "FISCALYEAR",
+    null "REVERSALREASON",
+    'InboundDelivery' "OBJECTTYPE",
+    1,
+    '0'
+FROM DUMMY;
+ELSE --  REVERSE for GR, IBD; ADD for GR,IBD
+IF (
+    cur_row.PURCHASEORDERNUMBER <> cur_row.PREV_PURCHASEORDERNUMBER
+)
+OR (
+    cur_row.PURCHASEORDERNUMBER = cur_row.PREV_PURCHASEORDERNUMBER
+    AND cur_row.PURCHASEORDERITEM <> cur_row.PREV_PURCHASEORDERITEM
+)
+OR (cur_row.quantity <> cur_row.PREV_QUANTITY)
+OR (cur_row.CONTAINERID <> cur_row.PREV_CONTAINERID) THEN --  REVERSE for GR RID = 1 So that it Prioritizes GR reversalfirst.
+IF cur_row.PREV_SAP_GRNUMBER != '' THEN -- AND cur_row.PREV_GRACTION = 'C' AND cur_row.PREV_GRSTATUS = 'S' THEN 
+INSERT INTO :TTV_MNET_ACTION
+SELECT cur_row.BOLID AS BOLID,
+    cur_row.BOLNO AS BOL,
+    cur_row.INVOICENUM AS INVID,
+    cur_row.ContainerID AS CONID,
+    -- IFNULL(cur_row.PREV_PURCHASEORDERNUMBER, cur_row.PURCHASEORDERNUMBER) AS PO,                 -- Use this if needed for PO change on Invoiceline.If we do this likely change in Node.js will be needed.
+    cur_row.PURCHASEORDERNUMBER AS PO,
+    'R' AS "ACTION",
+    cur_row.PREV_SAP_GRNUMBER AS "DOCNUM",
+    cur_row.PREV_GR_DATE "DATE",
+    null "FISCALYEAR",
+    null "REVERSALREASON",
+    'GoodsReceipt' "OBJECTTYPE",
+    1,
+    cur_row.PREV_SAP_LINEID_GR
+FROM DUMMY;
+END IF;
+--  REVERSE for IBD RID = 2 So that Reversal for IBD  is prioritized after IBD
+IF cur_row.PREV_SAP_IBDNUMBER != '' THEN -- AND ( ( cur_row.PREV_BTP_IBDACTION = 'C' OR cur_row.PREV_BTP_IBDACTION = 'U') AND cur_row.PREV_BTP_IBDSTATUS = 'S' )  THEN 
+INSERT INTO :TTV_MNET_ACTION
+SELECT cur_row.BOLID AS BOLID,
+    cur_row.BOLNO AS BOL,
+    cur_row.INVOICENUM AS INVID,
+    cur_row.ContainerID AS CONID,
+    -- IFNULL(cur_row.PREV_PURCHASEORDERNUMBER, cur_row.PURCHASEORDERNUMBER) AS PO,                 -- Use this if needed for PO change on Invoiceline.If we do this likely change in Node.js will be needed.
+    cur_row.PURCHASEORDERNUMBER AS PO,
+    'L' As "ACTION",
+    cur_row.PREV_SAP_IBDNUMBER "DOCNUM",
+    null "DATE",
+    null "FISCALYEAR",
+    null "REVERSALREASON",
+    'InboundDelivery' "OBJECTTYPE",
+    2,
+    cur_row.lineNumber
+FROM DUMMY;
+INSERT INTO :TTV_MNET_ITEM_IBD
+SELECT cur_row.BOLID AS BOLID,
+    cur_row.BOLNO AS BOL,
+    cur_row.INVOICENUM AS INVID,
+    cur_row.ContainerID AS CONID,
+    cur_row.PURCHASEORDERNUMBER AS PO,
+    'L' As "ACTION",
+    cur_row.PREV_SAP_IBDNUMBER "IBD_NO",
+    cur_row.PREV_SAP_LINEID_IBD as "IBD_LINE",
+    cur_row.lineNumber,
+    cur_row.supplierPartID,
+    IFNULL(
+        cur_row.PREV_PO_NEW,
+        cur_row.PREV_PURCHASEORDERNUMBER
+    ) as purchaseOrderNumber,
+    IFNULL(
+        cur_row.PREV_POITEM_NEW,
+        cur_row.PREV_PURCHASEORDERITEM
+    ) as PurchaseOrderItem,
+    0 as "QuantityInPurchaseOrderUnit",
+    0 as "ActualDeliveryQuantity",
+    null as "Batch",
+    cur_row.Plant,
+    IFNULL(
+        cur_row.PREV_PO_NEW,
+        cur_row.PREV_PURCHASEORDERNUMBER
+    ) as purchaseOrderNumber,
+    IFNULL(
+        cur_row.PREV_POITEM_NEW,
+        cur_row.PREV_PURCHASEORDERITEM
+    ) as PurchaseOrderItem,
+    cur_row.ValuationType
+FROM DUMMY;
+END IF;
+--  ADD for IBD 
+INSERT INTO :TTV_MNET_ACTION
+SELECT cur_row.BOLID AS BOLID,
+    cur_row.BOLNO AS BOL,
+    cur_row.INVOICENUM AS INVID,
+    cur_row.ContainerID AS CONID,
+    -- IFNULL(cur_row.PREV_PURCHASEORDERNUMBER, cur_row.PURCHASEORDERNUMBER) AS PO,                 -- Use this if needed for PO change on Invoiceline.If we do this likely change in Node.js will be needed.
+    cur_row.PURCHASEORDERNUMBER AS PO,
+    'C' AS "ACTION",
+    null AS "DOCNUM",
+    null "DATE",
+    null "FISCALYEAR",
+    null "REVERSALREASON",
+    'InboundDelivery' "OBJECTTYPE",
+    5,
+    cur_row.lineNumber
+FROM DUMMY;
+INSERT INTO :TTV_MNET_ITEM_IBD
+SELECT cur_row.BOLID AS BOLID,
+    cur_row.BOLNO AS BOL,
+    cur_row.INVOICENUM AS INVID,
+    cur_row.ContainerID AS CONID,
+    cur_row.PURCHASEORDERNUMBER AS PO,
+    'C' As "ACTION",
+    null as "IBD_NO",
+    null as "IBD_LINE",
+    cur_row.lineNumber,
+    cur_row.supplierPartID,
+    IFNULL(cur_row.PO_NEW, cur_row.PURCHASEORDERNUMBER) as purchaseOrderNumber,
+    IFNULL(cur_row.POITEM_NEW, cur_row.PURCHASEORDERITEM) as PurchaseOrderItem,
+    cur_row.quantity,
+    cur_row.quantity,
+    null as "Batch",
+    cur_row.Plant,
+    IFNULL(cur_row.PO_NEW, cur_row.PURCHASEORDERNUMBER) as purchaseOrderNumber,
+    IFNULL(cur_row.POITEM_NEW, cur_row.PURCHASEORDERITEM) as PurchaseOrderItem,
+    cur_row.ValuationType
+FROM DUMMY;
+END IF;
+-- REVERSE for INVOICE AND ADD for INVOICE
+-- SRINIVAS Removed ( cur_row.CONTAINERID <> cur_row.PREV_CONTAINERID) FOR IBD ISSUE
+IF (
+    cur_row.PURCHASEORDERNUMBER <> cur_row.PREV_PURCHASEORDERNUMBER
+)
+OR (
+    cur_row.PURCHASEORDERNUMBER = cur_row.PREV_PURCHASEORDERNUMBER
+    AND cur_row.PURCHASEORDERITEM <> cur_row.PREV_PURCHASEORDERITEM
+)
+OR (cur_row.quantity <> cur_row.PREV_QUANTITY)
+OR (cur_row.unitPrice <> cur_row.PREV_UNITPRICE) THEN -- REVERSE for INVOICE RID = 1 So that it Prioritizes  Reversal of Invoice before creation. 
+IF cur_row.PREV_SAP_INVOICENUMBER != '' THEN -- AND cur_row.PREV_INVOICEACTION = 'C' AND cur_row.PREV_INVOICESTATUS = 'S' THEN 
+INSERT INTO :TTV_MNET_ACTION
+SELECT cur_row.BOLID AS BOLID,
+    cur_row.BOLNO AS BOL,
+    cur_row.INVOICENUM AS INVID,
+    cur_row.ContainerID AS CONID,
+    cur_row.PURCHASEORDERNUMBER AS PO,
+    'D' AS "ACTION",
+    cur_row.PREV_SAP_INVOICENUMBER "DOCNUM",
+    cur_row.PREV_INV_DATE "DATE",
+    cur_row.PREV_FISCALYEAR "FISCALYEAR",
+    '03' "REVERSALREASON",
+    'Invoice' "OBJECTTYPE",
+    1,
+    cur_row.LineNumber as LineNumber
+FROM DUMMY;
+END IF;
+-- ADD for INVOICE RID is set to "3" so that it is prioritized after Reversal.
+INSERT INTO :TTV_MNET_ACTION
+SELECT cur_row.BOLID AS BOLID,
+    cur_row.BOLNO AS BOL,
+    cur_row.INVOICENUM AS INVID,
+    cur_row.ContainerID AS CONID,
+    cur_row.PURCHASEORDERNUMBER AS PO,
+    'C' AS "ACTION",
+    null "DOCNUM",
+    null "DATE",
+    null "FISCALYEAR",
+    '03' "REVERSALREASON",
+    'Invoice' "OBJECTTYPE",
+    3,
+    cur_row.lineNumber as LineNumber
+FROM DUMMY;
+INSERT INTO :TTV_MNET_ITEM_INV
+SELECT cur_row.BOLID AS BOLID,
+    cur_row.BOLNO AS BOL,
+    cur_row.INVOICENUM AS INVID,
+    cur_row.ContainerID AS CONID,
+    cur_row.PURCHASEORDERNUMBER AS PO,
+    'C' AS "ACTION",
+    null as "IBD_LINE",
+    cur_row.lineNumber,
+    cur_row.supplierPartID,
+    IFNULL(cur_row.PO_NEW, cur_row.PURCHASEORDERNUMBER) as purchaseOrderNumber,
+    IFNULL(cur_row.POITEM_NEW, cur_row.PURCHASEORDERITEM) as PurchaseOrderItem,
+    '1' as SupplierInvoiceItem,
+    cur_row.Plant,
+    'I0' as TaxCode,
+    cur_row.invoicecurrencyCode as Documentcurrency,
+    cur_row.extendedCost as SupplierInvoiceItemAmount,
+    cur_row.partUnitOfMeasurement as PurchaseOrderQuantityUnit,
+    cur_row.quantity as QuantityInPurchaseOrderUnit,
+    cur_row.lineNumber as SupplierInvoiceItemText
+FROM DUMMY;
+END IF;
+END IF;
+ELSEIF (cur_row.Action = 'D') THEN IF cur_row.PREV_SAP_GRNUMBER != '' THEN -- AND cur_row.PREV_GRACTION = 'C' AND cur_row.PREV_GRSTATUS = 'S' THEN 
+INSERT INTO :TTV_MNET_ACTION
+SELECT cur_row.BOLID AS BOLID,
+    cur_row.BOLNO AS BOL,
+    cur_row.INVOICENUM AS INVID,
+    cur_row.ContainerID AS CONID,
+    -- IFNULL(cur_row.PREV_PURCHASEORDERNUMBER, cur_row.PURCHASEORDERNUMBER) AS PO,                 -- Use this if needed for PO change on Invoiceline.If we do this likely change in Node.js will be needed.
+    cur_row.PURCHASEORDERNUMBER AS PO,
+    'R' AS "ACTION",
+    cur_row.PREV_SAP_GRNUMBER AS "DOCNUM",
+    cur_row.PREV_GR_DATE "DATE",
+    null "FISCALYEAR",
+    null "REVERSALREASON",
+    'GoodsReceipt' "OBJECTTYPE",
+    1,
+    cur_row.PREV_SAP_LINEID_GR
+FROM DUMMY;
+END IF;
+--  REVERSE for IBD RID = 2 So that Reversal for IBD  is prioritized after IBD
+IF cur_row.PREV_SAP_IBDNUMBER != '' THEN -- AND ( ( cur_row.PREV_BTP_IBDACTION = 'C' OR cur_row.PREV_BTP_IBDACTION = 'U') AND cur_row.PREV_BTP_IBDSTATUS = 'S' ) THEN 
+INSERT INTO :TTV_MNET_ACTION
+SELECT cur_row.BOLID AS BOLID,
+    cur_row.BOLNO AS BOL,
+    cur_row.INVOICENUM AS INVID,
+    cur_row.ContainerID AS CONID,
+    -- IFNULL(cur_row.PREV_PURCHASEORDERNUMBER, cur_row.PURCHASEORDERNUMBER) AS PO,                 -- Use this if needed for PO change on Invoiceline.If we do this likely change in Node.js will be needed.
+    cur_row.PURCHASEORDERNUMBER AS PO,
+    'L' As "ACTION",
+    cur_row.PREV_SAP_IBDNUMBER "DOCNUM",
+    null "DATE",
+    null "FISCALYEAR",
+    null "REVERSALREASON",
+    'InboundDelivery' "OBJECTTYPE",
+    2,
+    cur_row.lineNumber
+FROM DUMMY;
+INSERT INTO :TTV_MNET_ITEM_IBD
+SELECT cur_row.BOLID AS BOLID,
+    cur_row.BOLNO AS BOL,
+    cur_row.INVOICENUM AS INVID,
+    cur_row.ContainerID AS CONID,
+    cur_row.PURCHASEORDERNUMBER AS PO,
+    'L' As "ACTION",
+    cur_row.PREV_SAP_IBDNUMBER "IBD_NO",
+    cur_row.PREV_SAP_LINEID_IBD as "IBD_LINE",
+    cur_row.lineNumber,
+    cur_row.supplierPartID,
+    IFNULL(
+        cur_row.PREV_PO_NEW,
+        cur_row.PREV_PURCHASEORDERNUMBER
+    ) as purchaseOrderNumber,
+    IFNULL(
+        cur_row.PREV_POITEM_NEW,
+        cur_row.PREV_PURCHASEORDERITEM
+    ) as PurchaseOrderItem,
+    0 as "QuantityInPurchaseOrderUnit",
+    0 as "ActualDeliveryQuantity",
+    null as "Batch",
+    cur_row.Plant,
+    IFNULL(
+        cur_row.PREV_PO_NEW,
+        cur_row.PREV_PURCHASEORDERNUMBER
+    ) as purchaseOrderNumber,
+    IFNULL(
+        cur_row.PREV_POITEM_NEW,
+        cur_row.PREV_PURCHASEORDERITEM
+    ) as PurchaseOrderItem,
+    cur_row.ValuationType
+FROM DUMMY;
+END IF;
+IF cur_row.PREV_SAP_INVOICENUMBER != '' THEN -- AND cur_row.PREV_INVOICEACTION = 'C' AND cur_row.PREV_INVOICESTATUS = 'S' THEN  -- REVERSE for INVOICE RID = 1 So that it Prioritizes  Reversal of Invoice before creation. 
+INSERT INTO :TTV_MNET_ACTION
+SELECT cur_row.BOLID AS BOLID,
+    cur_row.BOLNO AS BOL,
+    cur_row.INVOICENUM AS INVID,
+    cur_row.ContainerID AS CONID,
+    cur_row.PURCHASEORDERNUMBER AS PO,
+    'D' AS "ACTION",
+    cur_row.PREV_SAP_INVOICENUMBER "DOCNUM",
+    cur_row.PREV_INV_DATE "DATE",
+    cur_row.PREV_FISCALYEAR "FISCALYEAR",
+    '03' "REVERSALREASON",
+    'Invoice' "OBJECTTYPE",
+    1,
+    cur_row.LineNumber as LineNumber
+FROM DUMMY;
+END IF;
+END IF;
+END FOR;
+---- Delete All Data ----
+DELETE FROM BTP_PANASONIC_MNET_ACTION
+WHERE BOLID = I_BOLID
+    AND BOL = I_BOL;
+-- AND PO = I_PO ;                 -- AND INVID = V_INVID AND CONID = V_CONID 
+DELETE FROM BTP_PANASONIC_MNET_DeliveryDocumentItem
+WHERE BOLID = I_BOLID
+    AND BOL = I_BOL;
+-- AND PO = I_PO ;   -- AND INVID = V_INVID AND CONID = V_CONID 
+DELETE FROM BTP_PANASONIC_MNET_SuplrInvcItemPurOrdRef
+WHERE BOLID = I_BOLID
+    AND BOL = I_BOL;
+-- AND PO = I_PO ; -- AND INVID = V_INVID AND CONID = V_CONID
+---- Transfer Data from Temporary table variable  ----
+INSERT INTO BTP_PANASONIC_MNET_ACTION
+SELECT Distinct "BOLID",
+    "BOL",
+    "INVID",
+    "CONID",
+    "PO",
+    "ACTION",
+    "DOCNUM",
+    "DATE",
+    "FISCALYEAR",
+    "REVERSALREASON",
+    "OBJECTTYPE",
+    "RID",
+    "LINENUMBER"
+FROM :TTV_MNET_ACTION;
+DELETE FROM :TTV_MNET_ACTION;
+INSERT INTO BTP_PANASONIC_MNET_DeliveryDocumentItem
+SELECT Distinct "BOLID",
+    "BOL",
+    "INVID",
+    "CONID",
+    "PO",
+    "Action",
+    "IBD_NO",
+    "IBD_LINE",
+    "lineNumber",
+    "Material",
+    "PURCHASEORDER",
+    "PURCHASEORDERITEM",
+    "QuantityInPURCHASEORDERUnit",
+    "ActualDeliveryQuantity",
+    "Batch",
+    "Plant",
+    "ReferenceSDDocument",
+    "ReferenceSDDocumentItem",
+    "InventoryValuationType"
+FROM :TTV_MNET_ITEM_IBD;
+DELETE FROM :TTV_MNET_ITEM_IBD;
+INSERT INTO BTP_PANASONIC_MNET_SuplrInvcItemPurOrdRef
+SELECT Distinct "BOLID",
+    "BOL",
+    "INVID",
+    "CONID",
+    "PO",
+    "Action",
+    "IBD_LINE",
+    "lineNumber",
+    "Material",
+    "PURCHASEORDER",
+    "PURCHASEORDERITEM",
+    "SupplierInvoiceItem",
+    "Plant",
+    "TaxCode",
+    "DocumentCurrency",
+    "SupplierInvoiceItemAmount",
+    "PURCHASEORDERQuantityUnit",
+    "QuantityInPURCHASEORDERUnit",
+    "SupplierInvoiceItemText"
+FROM :TTV_MNET_ITEM_INV;
+DELETE FROM :TTV_MNET_ITEM_INV;
+END;
+-- INC0219136.sn Update Invoice Line with Error Status and create entry in MonitoringStatus so that the data is visible on the dashboard.
+IF NOT EXISTS (
+    SELECT TOP 1 A.BOLID
+    FROM BTP_PANASONIC_MNET_ACTION AS A
+    WHERE A.BOLID = I_BOLID
+        and A.BOL = I_BOL
+) THEN
+UPDATE BTP_PANASONIC_INVOICELINE AS B
+SET B.STATUS = 'E'
+WHERE B.INVOICENUMBER_HOUSEBOLNUMBER_ID = I_BOLID
+    AND B.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = I_BOL;
+--AND B.PURCHASEORDERNUMBER = C_Hold_PO;
+SELECT "MNetStatusMonitoring_ID".NEXTVAL INTO V_NEXTID
+FROM DUMMY;
+INSERT INTO "BTP_PANASONIC_MNETSTATUSMONITORING" (
+        CREATEDAT,
+        ID,
+        BOLID,
+        HOUSEBOLNUMBER,
+        DATE,
+        OBJECTTYPE,
+        STATUS,
+        MESSAGE,
+        IMPORTSHIPMENTNUMBER
+    )
+VALUES (
+        NOW(),
+        V_NEXTID,
+        I_BOLID,
+        I_BOL,
+        NOW(),
+        'VALIDATION',
+        'E',
+        'Error Generating MNET_ACTIONS for Processing InvoiceLines',
+        I_importShipmentNumber
+    );
+INSERT INTO "BTP_PANASONIC_MNETSTATUSMONITORINGITEM" (
+        ID_ID,
+        LINEID,
+        LINENUMBER,
+        MATERIAL,
+        PURCHASEORDER,
+        PURCHASEORDERITEM
+    )
+Select V_NEXTID AS ID_ID,
+    ROW_NUMBER() OVER (
+        ORDER BY T0.LINENUMBER ASC
+    ) AS LINEID,
+    T0.LINENUMBER,
+    T0.SUPPLIERPARTID,
+    T0.PURCHASEORDERNUMBER,
+    T0.ORDERITEMNBR
+from BTP_PANASONIC_INVOICELINE As T0
+Where T0.INVOICENUMBER_HOUSEBOLNUMBER_ID = I_BOLID
+    And T0.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = I_BOL;
+-- And T0.PURCHASEORDERNUMBER = C_Hold_PO ;	
+END IF;
+-- INC0219136.en Update Invoice Line with Error Status and create entry in MonitoringStatus so that the data is visible on the dashboard.
+END;

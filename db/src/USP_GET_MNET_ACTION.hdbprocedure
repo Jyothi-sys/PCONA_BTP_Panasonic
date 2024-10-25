@@ -1,0 +1,1915 @@
+PROCEDURE "USP_GET_MNET_ACTION"(IN V_BOLID INTEGER,IN V_BOL NVARCHAR(30),IN V_INVID NVARCHAR(30),IN V_CONID NVARCHAR(30),IN V_PO NVARCHAR(30))
+LANGUAGE SQLSCRIPT
+SQL SECURITY INVOKER
+--DEFAULT SCHEMA <default_schema_name>
+--READS SQL DATA 
+-- Feb 15th. Change done for fixing issues introduced in previous build.
+-- Feb 20th. Changes done to address BOL Change same way as ETA change. All changes marked with "Defect 206part3"
+-- Feb 23rd. Changes done to address back to back ETA and BOL change.. marked with Defect 206part3a
+-- Mar 4th.  Changes done to address GoodsReciept Reversal... marked with Defect 206part3b
+-- Mar 6th.  Changes done to address GoodsReciept Reversal for ETA & BOL change... marked with Defect 206part3c
+-- Mar 12th. Changes done to address scenario where there is back to Back Eta change, BOL change, followed by an ETA change.Marked with Defect part3d
+-- Mar 20th. Defect 67 Fixed the issue where after H->O in a MNET file containing only one Invoice Line is processed. Currently after an H->O processing, there will be no lines present in Iteration 1, hence OBOLCNT will be 0.
+-- INC0219136 - Flagging an error if there is no data in tables and inserting records in Get_Mnet_Action.
+AS
+BEGIN
+ Declare V_BOLACT NVARCHAR(1);
+ Declare V_INVACT NVARCHAR(1);
+ DECLARE V_INVLINEACT NVARCHAR(1);
+ Declare V_importShipmentNumber NVARCHAR(30);		--Defect206.n
+
+ DECLARE V_NEXTID INTEGER;							--INC0219136.n
+ DECLARE V_HOLD_BOLNUM NVARCHAR(20);				--Defect 206part3.n
+ Declare V_OBOLIDCNT INTEGER;						--Defect206.n
+ Declare V_OBOLID INTEGER;
+ Declare V_OBOL NVARCHAR(30);
+ Declare V_OCON NVARCHAR(30);
+
+ DECLARE O_INITIALDESTINATIONETA DATE;
+ DECLARE C_INITIALDESTINATIONETA DATE;
+
+ Declare R1 INTEGER ;
+ Declare i INTEGER ;
+
+ Declare V_SUPPLIERPARTID NVARCHAR(30);
+ Declare V_PURCHASEORDERITEM NVARCHAR(5);
+ DECLARE V_QUANTITY NVARCHAR(17);
+ Declare V_UNITPRICE DECIMAL(23,6);
+ Declare R_CNT INTEGER;
+ DECLARE V_INVACTION NVARCHAR(1);
+ DECLARE V_LINENUMBER NVARCHAR(10);
+
+ DECLARE V_OQUANTITY NVARCHAR(17);
+ Declare V_OUNITPRICE DECIMAL(23,6);
+
+ DECLARE V_IBD_NO NVARCHAR(30);
+ DECLARE V_SAP_LINE NVARCHAR(30);
+ DECLARE V_GR_NO NVARCHAR(30);
+ DECLARE V_GR_LINENO NVARCHAR(30);		   --Defect206part3c.n
+ DECLARE V_GR_DATE NVARCHAR(30);
+ DECLARE V_INV_NO NVARCHAR(30);
+ DECLARE V_INV_YEAR NVARCHAR(30);
+ DECLARE V_INV_DATE NVARCHAR(30);
+ DECLARE C0_BOL NVARCHAR(10);
+ DECLARE C0_INV NVARCHAR(10);
+ DECLARE V_UPDATE_FLAG NVARCHAR(1);
+ DECLARE V_CONIDFLAG BOOLEAN;				-- Defect #206.n -- Flag that is set when record for Container Change is processed.
+ DECLARE CR_CNT INTEGER;					-- Defect #206.n -- Container Count
+ DECLARE NewLineForChangedInvoiceFlag BOOLEAN;	-- Defect 206part3a.n  Flag that is set when record for Invoiceline change is processed
+ DECLARE V_BOLCHANGE BOOLEAN;				-- Defect 206part3a.n Flag indicating that it is a BOL Change on BOLID.
+  
+ V_UPDATE_FLAG = 'F';						-- Defect #198.n -- Flag that is set when record for Changes are processed.
+ V_CONIDFLAG = FALSE ;						-- Defect #206.n 
+ V_HOLD_BOLNUM = V_BOL;						-- Defect 206part3.n
+ NewLineForChangedInvoiceFlag = FALSE;		-- Defect 206part3a.n
+ V_BOLCHANGE = FALSE;		-- Defect 206part3a.n
+
+
+CREATE LOCAL TEMPORARY TABLE "#TT_MNET_ACTION"(
+ "BOLID" INTEGER ,
+ "BOL" NVARCHAR(30),
+ "INVID" NVARCHAR(30),
+ "CONID" NVARCHAR(30),
+ "PO" NVARCHAR(30),
+ "ACTION"  NVARCHAR(10),
+ "DOCNUM"  NVARCHAR(30),
+ "DATE"  NVARCHAR(30),
+ "FISCALYEAR" NVARCHAR(10),
+ "REVERSALREASON" NVARCHAR(5),
+ "OBJECTTYPE" NVARCHAR(30),
+ "RID" INTEGER,
+ "LINENUMBER" NVARCHAR(30)
+);
+
+CREATE LOCAL TEMPORARY TABLE "#TT_MNET_ITEM_IBD"(
+ "BOLID" INTEGER ,
+ "BOL" NVARCHAR(30),
+ "INVID" NVARCHAR(30),
+ "CONID" NVARCHAR(30),
+ "PO" NVARCHAR(30),
+ "Action"  NVARCHAR(10),
+ "IBD_NO" NVARCHAR(30),
+ "IBD_LINE"  NVARCHAR(30),
+ "lineNumber"  NVARCHAR(10),
+ "Material"  NVARCHAR(30),
+ "PurchaseOrder"  NVARCHAR(30),
+ "PurchaseOrderItem"  NVARCHAR(5),
+ "QuantityInPurchaseOrderUnit"  NVARCHAR(10),
+ "ActualDeliveryQuantity"  NVARCHAR(10),
+ "Batch"  NVARCHAR(10),
+ "Plant"  NVARCHAR(10),
+ "ReferenceSDDocument"  NVARCHAR(30),
+ "ReferenceSDDocumentItem"  NVARCHAR(5),
+ "InventoryValuationType"  NVARCHAR(30)
+);
+
+CREATE LOCAL TEMPORARY TABLE "#TT_MNET_ITEM_INV"(
+"BOLID" INTEGER ,
+"BOL" NVARCHAR(30),
+"INVID" NVARCHAR(30),
+"CONID" NVARCHAR(30),
+"PO" NVARCHAR(30),
+"Action"  NVARCHAR(10),
+"IBD_LINE"  NVARCHAR(30),
+"lineNumber"  NVARCHAR(10),
+"Material"  NVARCHAR(30),
+"PurchaseOrder"  NVARCHAR(30),
+"PurchaseOrderItem"  NVARCHAR(5),
+"SupplierInvoiceItem"  NVARCHAR(10),
+"Plant"  NVARCHAR(10),
+"TaxCode"  NVARCHAR(10),
+"DocumentCurrency"  NVARCHAR(30),
+"SupplierInvoiceItemAmount"  NVARCHAR(10),
+"PurchaseOrderQuantityUnit"  NVARCHAR(30),
+"QuantityInPurchaseOrderUnit"  NVARCHAR(10),
+"SupplierInvoiceItemText"  NVARCHAR(10)
+);
+
+SELECT UPPER(T0.ACTION) INTO V_BOLACT FROM BTP_PANASONIC_BOLHEADER As T0 Where T0.ID = V_BOLID And T0.HOUSEBOLNUMBER = V_BOL ;
+SELECT UPPER(T0.ACTION) INTO V_INVACT FROM BTP_PANASONIC_INVOICEHEADER As T0 Where T0.HOUSEBOLNUMBER_ID = V_BOLID And T0.HOUSEBOLNUMBER_HOUSEBOLNUMBER = V_BOL AND T0.INVOICENUMBER = V_INVID;			--Defect 206 part3a.n
+    
+Select T0.importShipmentNumber INTO V_importShipmentNumber From BTP_PANASONIC_BOLHEADER As T0 Where T0.ID = V_BOLID And T0.HOUSEBOLNUMBER = V_BOL ;
+
+Select T0.FLAG_BOLCHANGE INTO V_BOLCHANGE From BTP_PANASONIC_BOLHEADER As T0 Where T0.ID = V_BOLID And T0.HOUSEBOLNUMBER = V_BOL ;  -- Defect 206part3a.n
+
+/* Defect 206 Corrects the bug introduced via Defect 198. The check for count should have been done on HouseBOLnumber. If Mnet file is received 1st time for a HOUSEBOLnumber number and Invoice Number treat it like an "A" even if the action in the MNET file is "M". */ 
+-- Defect#198.sn
+--  Select count(*) INTO C0_BOL FROM BTP_PANASONIC_BOLHEADER As T0 Where T0.ID = V_BOLID And T0.HOUSEBOLNUMBER = V_BOL ;
+--  Select count(*) INTO C0_INV FROM BTP_PANASONIC_INVOICEHEADER As T0 Where T0.HOUSEBOLNUMBER_ID = V_BOLID And T0.HOUSEBOLNUMBER_HOUSEBOLNUMBER = V_BOL ;
+-- Defect#198.en
+-- Defect#206.sn 
+-- Defect 206.oPart2 Select count(*) INTO C0_BOL FROM BTP_PANASONIC_BOLHEADER As T0 Where T0.HOUSEBOLNUMBER = V_BOL ;
+-- Defect 206.oPart2 Select count(*) INTO C0_INV FROM BTP_PANASONIC_INVOICEHEADER As T0 Where T0.INVOICENUMBER = V_INVID And T0.HOUSEBOLNUMBER_HOUSEBOLNUMBER = V_BOL ;
+-- Defect 206part3.o Select count(T0.INVOICENUMBER) INTO C0_INV FROM BTP_PANASONIC_INVOICEHEADER As T0, BTP_PANASONIC_BOLHEADER AS T1 Where T0.HOUSEBOLNUMBER_HOUSEBOLNUMBER = V_BOL AND T0.HOUSEBOLNUMBER_HOUSEBOLNUMBER = T1.HOUSEBOLNUMBER AND T1.ImportShipmentNumber = V_importShipmentNumber;
+
+-- Defect 206part3.o Select count(T0.HOUSEBOLNUMBER) INTO C0_BOL FROM BTP_PANASONIC_BOLHEADER As T0 Where T0.HOUSEBOLNUMBER = V_BOL AND T0.ImportShipmentNumber = V_importShipmentNumber;
+-- Defect 206part3.o Select count(T0.INVOICENUMBER) INTO C0_INV FROM BTP_PANASONIC_INVOICEHEADER As T0, BTP_PANASONIC_BOLHEADER AS T1 Where T0.HOUSEBOLNUMBER_HOUSEBOLNUMBER = V_BOL AND T0.HOUSEBOLNUMBER_HOUSEBOLNUMBER = T1.HOUSEBOLNUMBER AND T1.ImportShipmentNumber = V_importShipmentNumber and T0.INVOICENUMBER = V_INVID; --
+
+-- Defect#206.en
+
+ Delete From BTP_PANASONIC_MNET_ACTION Where BOLID = V_BOLID And BOL = V_BOL And INVID = V_INVID and CONID = V_CONID And PO = V_PO ;
+ Delete From BTP_PANASONIC_MNET_DeliveryDocumentItem Where BOLID = V_BOLID And BOL = V_BOL And INVID = V_INVID and CONID = V_CONID And PO = V_PO ;
+ Delete From BTP_PANASONIC_MNET_SuplrInvcItemPurOrdRef Where BOLID = V_BOLID And BOL = V_BOL And INVID = V_INVID and CONID = V_CONID And PO = V_PO ;
+
+-- Defect 206part3.n Moved the code up to confirm if there exists another BOL for same Folder No/ImportShipmentNumber. BOLID is sequentially incremented with each processing of a file, hence logic would be to look for previous BOL ID. The previous logic using != operator would derive the last record processed which may not be the one that we want.
+-- Defect 206part3.o Select count(ID) into V_OBOLIDCNT From MNET_WORKFLOW_GET_MNET_DATA As T0 Where T0.importShipmentNumber = V_importShipmentNumber;
+   
+ Select count(T0.HOUSEBOLNUMBER) INTO C0_BOL FROM BTP_PANASONIC_BOLHEADER As T0 Where T0.HOUSEBOLNUMBER = V_BOL AND T0.ImportShipmentNumber = V_importShipmentNumber AND EXISTS ( SELECT 1 FROM BTP_PANASONIC_INVOICELINE AS A WHERE A.PURCHASEORDERNUMBER = V_PO and A.INVOICENUMBER_HOUSEBOLNUMBER_ID = T0.ID);     -- Defect 206part3a.n
+ 
+ Select count(T0.INVOICENUMBER) INTO C0_INV FROM BTP_PANASONIC_INVOICEHEADER As T0, BTP_PANASONIC_BOLHEADER AS T1 
+ Where T0.HOUSEBOLNUMBER_HOUSEBOLNUMBER = V_BOL AND T0.HOUSEBOLNUMBER_HOUSEBOLNUMBER = T1.HOUSEBOLNUMBER AND T1.ImportShipmentNumber = V_importShipmentNumber and T0.INVOICENUMBER = V_INVID AND EXISTS ( SELECT 1 FROM BTP_PANASONIC_INVOICELINE AS A WHERE A.PURCHASEORDERNUMBER = V_PO and A.INVOICENUMBER_HOUSEBOLNUMBER_ID = T0.HOUSEBOLNUMBER_ID);
+ 
+ Select count(ID) into V_OBOLIDCNT From MNET_WORKFLOW_GET_MNET_DATA As T0 Where T0.importShipmentNumber = V_importShipmentNumber
+ And T0.ID < V_BOLID AND T0.PURCHASEORDERNUMBER = V_PO ;
+
+ 
+-- Defect 206.o IF (V_BOLACT ='A' AND V_INVACT ='A') THEN
+--  IF V_BOLACT ='A' AND V_INVACT ='A' AND ( (C_BOL = 1 AND V_BOLACT = 'M' ) AND ( V_BOL = 1 AND V_INVACT = 'M') ) THEN 
+-- Defect 206.oPart2 IF (V_BOLACT ='A' AND V_INVACT ='A') OR ( (C0_BOL = 1 AND V_BOLACT = 'M' ) AND ( C0_INV = 1 AND V_INVACT = 'M') ) THEN
+-- Defect 206.oPart3 IF (V_BOLACT ='A' AND V_INVACT ='A') OR ( (V_OBOLIDCNT = 0 AND C0_BOL = 1 AND V_BOLACT = 'M' ) AND ( C0_INV = 1 AND V_INVACT = 'M') ) THEN
+
+-- Defect#206.sn
+-- The MNET file can come with an Action "A" or "M" on BOL and InvoiceHeader the 1st time it comes in, consider it as an add.
+ IF ( (V_BOLACT ='A' AND V_INVACT ='A') OR ( V_OBOLIDCNT = 0 AND C0_BOL = 1 AND V_BOLACT = 'M' AND C0_INV = 1 ) ) THEN	-- Defect 206part3.n
+
+-- Defect#206.en
+ ---- Add New Data ----
+         INSERT INTO "#TT_MNET_ACTION"
+         Select 
+         V_BOLID as BOLID ,
+         V_BOL As BOL,
+         V_INVID as INVID,
+         V_CONID as CONID,
+         V_PO as PO,
+         'C' As "ACTION", null "DOCNUM",null "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'InboundDelivery' "OBJECTTYPE",5,'0' From Dummy ;
+         
+         INSERT INTO "#TT_MNET_ACTION"
+         Select 
+         V_BOLID as BOLID ,
+         V_BOL As BOL,
+         V_INVID as INVID,
+         V_CONID as CONID,
+         V_PO as PO,
+         'C' As "ACTION", null "DOCNUM",null "DATE",null "FISCALYEAR" ,'03' "REVERSALREASON" ,'Invoice' "OBJECTTYPE",5 
+         ,T0.lineNumber 
+         from MNET_WORKFLOW_GET_MNET_DATA as T0 
+         left join BTP_PANASONIC_POCROSSREF as T1 on T0.purchaseOrderNumber = T1.PO_OLD and T0.PurchaseOrderItem = T1.POITEM_OLD And IFNULL(T1.ISDELETE,'N') = 'N'
+         WHERE T0.HOUSEBOLNUMBER = V_BOL AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+         And T0.purchaseOrderNumber = V_PO
+         AND T0.ID = V_BOLID 
+         Order by T0.PurchaseOrderItem; 
+
+         INSERT INTO "#TT_MNET_ITEM_IBD"
+         Select 
+         V_BOLID as BOLID ,
+         V_BOL As BOL,
+         V_INVID as INVID,
+         V_CONID as CONID,
+         V_PO as PO,
+         'C' As "ACTION",
+         null as "IBD_NO",
+         null as "IBD_LINE" ,
+         T0.lineNumber ,
+         T0.supplierPartID,
+         IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+         IFNULL(T1.POITEM_NEW,T0.PurchaseOrderItem) as PurchaseOrderItem,
+         T0.quantity,
+         T0.quantity,
+         null as "Batch",
+         T0.Plant,
+         IFNULL(T1.PO_NEW,T0.purchaseOrderNumber),
+         IFNULL(T1.POITEM_NEW,T0.PurchaseOrderItem),
+         T0.ValuationType
+         from MNET_WORKFLOW_GET_MNET_DATA as T0 
+         left join BTP_PANASONIC_POCROSSREF as T1 on T0.purchaseOrderNumber = T1.PO_OLD and T0.PurchaseOrderItem = T1.POITEM_OLD And IFNULL(T1.ISDELETE,'N') = 'N'
+         WHERE T0.HOUSEBOLNUMBER = V_BOL AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+         And T0.purchaseOrderNumber = V_PO
+         AND T0.ID = V_BOLID 
+         And IFNULL(T0.PASCOriginalPartsNbr,'') = ''
+         Order by T0.PurchaseOrderItem; 
+
+         --- For Subtitution Item --- 
+         INSERT INTO "#TT_MNET_ITEM_IBD"
+         Select 
+         V_BOLID as BOLID ,
+         V_BOL As BOL,
+         V_INVID as INVID,
+         V_CONID as CONID,
+         V_PO as PO,
+         'C' As "ACTION",
+         null as "IBD_NO",
+         null as "IBD_LINE" ,
+         T0.lineNumber ,
+         T0.supplierPartID,
+         IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+         IFNULL(T1.POITEM_NEW,T0.PO_ITEMID) as PurchaseOrderItem,
+         T0.quantity,
+         T0.quantity,
+         null as "Batch",
+         T0.Plant,
+         IFNULL(T1.PO_NEW,T0.purchaseOrderNumber),
+         IFNULL(T1.POITEM_NEW,T0.PO_ITEMID),
+         T0.ValuationType
+         from MNET_WORKFLOW_GET_MNET_DATA_SUB as T0 
+         left join BTP_PANASONIC_POCROSSREF as T1 on T0.purchaseOrderNumber = T1.PO_OLD and T0.PurchaseOrderItem = T1.POITEM_OLD And IFNULL(T1.ISDELETE,'N') = 'N'
+         WHERE T0.HOUSEBOLNUMBER = V_BOL AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+         And T0.purchaseOrderNumber = V_PO
+         AND T0.ID = V_BOLID 
+         --And IFNULL(T0.PASCOriginalPartsNbr,'') = ''
+         Order by T0.PurchaseOrderItem; 
+
+         INSERT INTO "#TT_MNET_ITEM_INV"
+         Select 
+         V_BOLID as BOLID ,
+         V_BOL As BOL,
+         V_INVID as INVID,
+         V_CONID as CONID,
+         V_PO as PO,
+         'C' As "ACTION",
+         null as "IBD_LINE" ,
+         T0.lineNumber ,
+         T0.supplierPartID,
+         IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+         IFNULL(T1.POITEM_NEW,T0.PurchaseOrderItem) as PurchaseOrderItem,
+         '1' as SupplierInvoiceItem ,
+         T0.Plant,
+         'I0' as TaxCode,
+        T0.invoiceCurrencyCode as DocumentCurrency,
+        T0.extendedCost as SupplierInvoiceItemAmount,
+        T0.partUnitOfMeasurement as PurchaseOrderQuantityUnit,
+        T0.quantity as QuantityInPurchaseOrderUnit,
+        T0.lineNumber as SupplierInvoiceItemText
+         from MNET_WORKFLOW_GET_MNET_DATA as T0 
+         left join BTP_PANASONIC_POCROSSREF as T1 on T0.purchaseOrderNumber = T1.PO_OLD and T0.PurchaseOrderItem = T1.POITEM_OLD And IFNULL(T1.ISDELETE,'N') = 'N'
+         WHERE T0.HOUSEBOLNUMBER = V_BOL AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+         And T0.purchaseOrderNumber = V_PO
+         AND T0.ID = V_BOLID 
+         And IFNULL(T0.PASCOriginalPartsNbr,'') = ''
+         Order by T0.PurchaseOrderItem; 
+
+         --- For Subtitution Item ---- 
+
+         INSERT INTO "#TT_MNET_ITEM_INV"
+         Select 
+         V_BOLID as BOLID ,
+         V_BOL As BOL,
+         V_INVID as INVID,
+         V_CONID as CONID,
+         V_PO as PO,
+         'C' As "ACTION",
+         null as "IBD_LINE" ,
+         T0.lineNumber ,
+         T0.supplierPartID,
+         IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+         IFNULL(T1.POITEM_NEW,T0.PO_ITEMID) as PurchaseOrderItem,
+         '1' as SupplierInvoiceItem ,
+         T0.Plant,
+         'I0' as TaxCode,
+         T0.invoiceCurrencyCode as DocumentCurrency,
+         T0.extendedCost as SupplierInvoiceItemAmount,
+         T0.partUnitOfMeasurement as PurchaseOrderQuantityUnit,
+         T0.quantity as QuantityInPurchaseOrderUnit,
+         T0.lineNumber as SupplierInvoiceItemText
+         from MNET_WORKFLOW_GET_MNET_DATA_SUB as T0 
+         left join BTP_PANASONIC_POCROSSREF as T1 on T0.purchaseOrderNumber = T1.PO_OLD and T0.PurchaseOrderItem = T1.POITEM_OLD And IFNULL(T1.ISDELETE,'N') = 'N'
+         WHERE T0.HOUSEBOLNUMBER = V_BOL AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+         And T0.purchaseOrderNumber = V_PO
+         AND T0.ID = V_BOLID 
+         Order by T0.PurchaseOrderItem; 
+
+
+
+---- End of Add New Data ----
+ELSEIF V_BOLACT ='M' AND V_INVACT ='M' THEN
+---- Update Existing Data ----
+--Defect 206.oPart2  Code has been moved above the If condition
+--Defect 206.oPart2 Select count(ID) into V_OBOLIDCNT 
+--Defect 206.oPart2 From MNET_WORKFLOW_GET_MNET_DATA As T0 
+--Defect 206.oPart2 Where T0.importShipmentNumber = V_importShipmentNumber
+--Defect 206.oPart2    And T0.ID != V_BOLID ;
+
+ IF V_OBOLIDCNT > 0 THEN 
+     Select Max(T0.ID) into V_OBOLID From MNET_WORKFLOW_GET_MNET_DATA As T0 Where T0.importShipmentNumber = V_importShipmentNumber
+     -- Defect 206part3.o   And T0.ID != V_BOLID ;
+	 And T0.ID < V_BOLID AND T0.PURCHASEORDERNUMBER = V_PO ;  -- Defect 206part3.n
+
+     Select top 1 
+     T0.INITIALDESTINATIONETA ,
+     T0.HOUSEBOLNUMBER ,
+     T0.CONTAINERID 
+     INTO 
+     O_INITIALDESTINATIONETA ,
+     V_OBOL,
+     V_OCON
+     From MNET_WORKFLOW_GET_MNET_DATA As T0 Where 
+  -- T0.importShipmentNumber = V_importShipmentNumber And T0.ID = V_OBOLID;  -- Defect 206part3.o 
+	 T0.importShipmentNumber = V_importShipmentNumber And T0.ID = V_OBOLID AND T0.PURCHASEORDERNUMBER = V_PO ;  -- Defect 206part3.n 
+ ELSE                       -- Defect 67.sn
+    V_OBOLID = V_BOLID;
+    V_OBOL = V_BOL;
+    V_OCON = V_CONID;
+ END IF ;                    
+ IF V_OBOLIDCNT >= 0 THEN   -- Defect 67.en
+     Select top 1 T0.INITIALDESTINATIONETA INTO C_INITIALDESTINATIONETA From BTP_PANASONIC_BOLHEADER As T0 Where 
+     T0.importShipmentNumber = V_importShipmentNumber And T0.ID = V_BOLID ;
+
+     IF V_OBOLIDCNT = 0 THEN -- Defect 67.sn
+        O_INITIALDESTINATIONETA = C_INITIALDESTINATIONETA;     
+     END IF;                 -- Defect 67.en   
+
+     IF ( V_OBOL != V_BOL and V_BOLCHANGE = TRUE ) THEN --  Defect 206part3.sn
+		V_HOLD_BOLNUM = V_OBOL; 				
+	 END IF;											--	Defect 206part3.en
+/* --Defect 206part3.so Feb 20th Based on new process change, A BOL Change will cause an Update instead of reversal and creation of IBD 		 
+
+         V_UPDATE_FLAG = 'T';
+
+
+         ---- This code comment for new changes ----
+                 --    INSERT INTO "#TT_MNET_ACTION"
+                 --    Select 
+                 --    V_BOLID as BOLID ,
+                 --    V_BOL As BOL,
+                 --    V_INVID as INVID,
+                 --    V_CONID as CONID,
+                 --    V_PO as PO,
+                 --    'D' As "ACTION", T0.OBJECTREFNO as DOCNUM
+                 --    ,null "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'InboundDelivery' "OBJECTTYPE",1,'0'
+                 --    from BTP_PANASONIC_MNETSTATUSMONITORING As T0 
+                 --    Where T0.HOUSEBOLNUMBER = V_OBOL 
+                 --    And T0.INVOICENUMBER = V_INVID 
+                 --    AND T0.CONTAINERID = V_CONID 
+                 --    And T0.OBJECTTYPE = 'InboundDelivery' 
+                 --    And T0.STATUS = 'S' And T0.ACTION ='C'
+                 --    and Not Exists 
+                 --    (Select 1 From BTP_PANASONIC_MNETSTATUSMONITORING As T1 
+                 --    Where T1.HOUSEBOLNUMBER = T0.HOUSEBOLNUMBER 
+                 --    And T0.INVOICENUMBER = T1.INVOICENUMBER 
+                 --    AND T0.CONTAINERID = T1.CONTAINERID 
+                 --    And T0.OBJECTTYPE = T1.OBJECTTYPE
+                 --    And T0.STATUS = 'S'  And T0.ACTION ='D');
+
+                 --    INSERT INTO "#TT_MNET_ACTION" 
+                 --    Select 
+                 --    V_BOLID as BOLID ,
+                 --    V_BOL As BOL,
+                 --    V_INVID as INVID,
+                 --    V_CONID as CONID,
+                 --    V_PO as PO,
+                 --    'R' As "ACTION", T0.OBJECTREFNO as DOCNUM
+                 --    ,T0.GR_DATE "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'GoodsReceipt' "OBJECTTYPE",1,'0'
+                 --    from BTP_PANASONIC_MNETSTATUSMONITORING As T0 
+                 --    Where T0.HOUSEBOLNUMBER = V_OBOL 
+                 --    And T0.INVOICENUMBER = V_INVID 
+                 --    AND T0.CONTAINERID = V_CONID 
+                 --    And T0.OBJECTTYPE = 'GoodsReceipt' 
+                 --    And T0.STATUS = 'S' And  T0.ACTION = 'C'
+                 --    and Not Exists 
+                 --    (Select 1 From BTP_PANASONIC_MNETSTATUSMONITORING As T1 
+                 --    Where T1.HOUSEBOLNUMBER = T0.HOUSEBOLNUMBER 
+                 --    And T0.INVOICENUMBER = T1.INVOICENUMBER 
+                 --    AND T0.CONTAINERID = T1.CONTAINERID 
+                 --    And T0.OBJECTTYPE = T1.OBJECTTYPE
+                 --    And T0.STATUS = 'S' And T0.ACTION = 'R');
+
+         ---- This code comment for new changes -----
+                 SELECT COUNT(*) into R1
+                 FROM MNET_WORKFLOW_GET_MNET_DATA AS T0 
+		-- Defect 206.oPart2		 WHERE T0.HOUSEBOLNUMBER = V_BOL AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+				 WHERE T0.HOUSEBOLNUMBER = V_OBOL AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+                 And T0.purchaseOrderNumber = V_PO;					
+                 IF R1 > 0 THEN 
+
+                     FOR i IN 0..:R1 -1 DO
+                         SELECT T0.supplierPartID ,T0.PurchaseOrderItem , T0.quantity, T0.INVACTION,T0.UNITPRICE,T0.LINENUMBER
+                         into V_SUPPLIERPARTID , V_PURCHASEORDERITEM, V_QUANTITY , V_INVACTION,V_UNITPRICE,V_LINENUMBER
+                         FROM MNET_WORKFLOW_GET_MNET_DATA AS T0 
+         -- Defect 206.oPart2  WHERE T0.HOUSEBOLNUMBER = V_BOL AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+                         WHERE T0.HOUSEBOLNUMBER = V_OBOL AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID							
+                         And T0.purchaseOrderNumber = V_PO
+         -- Defect 206.oPart2 AND T0.ID = V_BOLID 
+                         AND T0.ID = V_OBOLID 
+                         LIMIT 1 OFFSET :i;                                              
+                        
+                                     SELECT "GET_MNET_DETAILS"(V_OBOL,V_INVID,V_CONID,V_PO,'InboundDelivery','',V_PURCHASEORDERITEM,'V_OBJID').V_OUTPUT INTO V_IBD_NO DEFAULT '' FROM DUMMY;
+                                     SELECT "GET_MNET_DETAILS"(V_OBOL,V_INVID,V_CONID,V_PO,'InboundDelivery','',V_PURCHASEORDERITEM,'V_IBD_LINE').V_OUTPUT INTO V_SAP_LINE DEFAULT '' FROM DUMMY;
+                                     -- Defect206part3c.sn 
+									 SELECT "GET_MNET_DETAILS"(V_OBOL,V_INVID,V_CONID,V_PO,'GoodsReceipt','',V_PURCHASEORDERITEM,'V_OBJID').V_OUTPUT INTO V_GR_NO DEFAULT '' FROM DUMMY;
+                                     SELECT "GET_MNET_DETAILS"(V_OBOL,V_INVID,V_CONID,V_PO,'GoodsReceipt','',V_PURCHASEORDERITEM,'V_IBD_LINE').V_OUTPUT INTO V_GR_LINENO DEFAULT '' FROM DUMMY;
+                                     -- Defect206part3c.en 									 
+                                     SELECT "GET_MNET_DETAILS"(V_OBOL,V_INVID,V_CONID,V_PO,'GoodsReceipt',V_IBD_NO,V_PURCHASEORDERITEM,'V_GRDATE').V_OUTPUT INTO V_GR_DATE DEFAULT '' FROM DUMMY;
+             
+                                     IF V_IBD_NO != '' THEN 
+                                         INSERT INTO "#TT_MNET_ACTION" 
+                                         Select 
+                                         V_BOLID as BOLID ,
+                                         V_BOL As BOL,
+                                         V_INVID as INVID,
+                                         V_CONID as CONID,
+                                         V_PO as PO,
+                                         'L' As "ACTION", V_IBD_NO "DOCNUM",null "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'InboundDelivery' "OBJECTTYPE",2,V_LINENUMBER From Dummy ;
+                                     
+                                        -- This For New Changes --
+                                         INSERT INTO "#TT_MNET_ITEM_IBD"
+                                                 Select 
+         -- Defect 206part3.o                    V_BOLID as BOLID ,
+         -- Defect 206part3.o                    V_BOL As BOL,
+                                                 V_OBOLID as BOLID ,
+                                                 V_OBOL As BOL,
+                                                 V_INVID as INVID,
+                                                 V_CONID as CONID,
+                                                 V_PO as PO,
+                                                 'L' As "ACTION",
+                                                 V_IBD_NO As "IBD_NO",
+                                                 V_SAP_LINE as "IBD_LINE" ,
+                                                 T0.lineNumber ,
+                                                 T0.supplierPartID,
+                                                 IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                                                 IFNULL(T1.POITEM_NEW,T0.PurchaseOrderItem) as PurchaseOrderItem,
+                                                 '0' as "QuantityInPurchaseOrderUnit",
+                                                 '0' as "ActualDeliveryQuantity",
+                                                 null as "Batch",
+                                                 T0.Plant,
+                                                 IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                                                 IFNULL(T1.POITEM_NEW,T0.PurchaseOrderItem) as PurchaseOrderItem,
+                                                 T0.ValuationType
+                                                 from MNET_WORKFLOW_GET_MNET_DATA as T0 
+                                                 left join BTP_PANASONIC_POCROSSREF as T1 on T0.purchaseOrderNumber = T1.PO_OLD and T0.PurchaseOrderItem = T1.POITEM_OLD And IFNULL(T1.ISDELETE,'N') = 'N'
+                                                 WHERE T0.HOUSEBOLNUMBER = V_BOL AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+                                                 And T0.purchaseOrderNumber = V_PO
+                                                 AND T0.ID = V_BOLID  And T0.PurchaseOrderItem = V_PURCHASEORDERITEM
+                                                 Order by T0.PurchaseOrderItem; 
+                                     END IF;
+             
+                                     IF V_GR_DATE != '' THEN 
+                                         INSERT INTO "#TT_MNET_ACTION" 
+                                         Select 
+     -- Defect 206part3.o                V_BOLID as BOLID ,
+     -- Defect 206part3.o	             V_BOL As BOL,
+                                         V_OBOLID as BOLID ,
+                                         V_OBOL As BOL,
+                                         V_INVID as INVID,
+                                         V_CONID as CONID,
+                                         V_PO as PO,
+     -- Defect 206part3c.o                'R' As "ACTION", V_IBD_NO "DOCNUM",V_GR_DATE "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'GoodsReceipt' "OBJECTTYPE",4,V_LINENUMBER From Dummy ;
+                                         'R' As "ACTION", V_GR_NO "DOCNUM",V_GR_DATE "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'GoodsReceipt' "OBJECTTYPE",4,V_GR_LINENO From Dummy ;
+                                     END IF;    
+             
+                                     
+                                 
+                     END FOR;
+                 
+                END IF;
+                 
+                         INSERT INTO "#TT_MNET_ACTION"
+                         Select 
+                         V_BOLID as BOLID ,
+                         V_BOL As BOL,
+                         V_INVID as INVID,
+                         V_CONID as CONID,
+                         V_PO as PO,
+                         'C' As "ACTION", null "DOCNUM",null "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'InboundDelivery' "OBJECTTYPE",5,'0' From Dummy ;
+
+                         INSERT INTO "#TT_MNET_ITEM_IBD"
+                         Select 
+                         V_BOLID as BOLID ,
+                         V_BOL As BOL,
+                         V_INVID as INVID,
+                         V_CONID as CONID,
+                         V_PO as PO,
+                         'C' As "ACTION",
+                         null as "IBD_NO",
+                         null as "IBD_LINE" ,
+                         T0.lineNumber ,
+                         T0.supplierPartID,
+                         IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                         IFNULL(T1.POITEM_NEW,T0.PurchaseOrderItem) as PurchaseOrderItem,
+                         T0.quantity,
+                         T0.quantity,
+                         null as "Batch",
+                         T0.Plant,
+                         IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                         IFNULL(T1.POITEM_NEW,T0.PurchaseOrderItem) as PurchaseOrderItem,
+                         T0.ValuationType
+                         from MNET_WORKFLOW_GET_MNET_DATA as T0 
+                         left join BTP_PANASONIC_POCROSSREF as T1 on T0.purchaseOrderNumber = T1.PO_OLD and T0.PurchaseOrderItem = T1.POITEM_OLD And IFNULL(T1.ISDELETE,'N') = 'N'
+                         WHERE T0.HOUSEBOLNUMBER = V_BOL AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+                         And T0.purchaseOrderNumber = V_PO
+                         AND T0.ID = V_BOLID 
+                         AND IFNULL(T0.PASCOriginalPartsNbr,'') = ''
+                         Order by T0.PurchaseOrderItem; 
+
+                         ----- For Subtitution Item Changes ----
+                         INSERT INTO "#TT_MNET_ITEM_IBD"
+                         Select 
+                         V_BOLID as BOLID ,
+                         V_BOL As BOL,
+                         V_INVID as INVID,
+                         V_CONID as CONID,
+                         V_PO as PO,
+                         'C' As "ACTION",
+                         null as "IBD_NO",
+                         null as "IBD_LINE" ,
+                         T0.lineNumber ,
+                         T0.supplierPartID,
+                         IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                         IFNULL(T1.POITEM_NEW,T0.PO_ITEMID) as PurchaseOrderItem,
+                         T0.quantity,
+                         T0.quantity,
+                         null as "Batch",
+                         T0.Plant,
+                         IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                         IFNULL(T1.POITEM_NEW,T0.PO_ITEMID) as PurchaseOrderItem,
+                         T0.ValuationType
+                         from MNET_WORKFLOW_GET_MNET_DATA_SUB as T0 
+                         left join BTP_PANASONIC_POCROSSREF as T1 on T0.purchaseOrderNumber = T1.PO_OLD and T0.PurchaseOrderItem = T1.POITEM_OLD And IFNULL(T1.ISDELETE,'N') = 'N'
+                         WHERE T0.HOUSEBOLNUMBER = V_BOL AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+                         And T0.purchaseOrderNumber = V_PO
+                         AND T0.ID = V_BOLID 
+                         --AND IFNULL(T0.PASCOriginalPartsNbr,'') = '';
+                         Order by T0.PurchaseOrderItem; 
+
+     END IF;
+*/						-- Defect 206.eo BOL Changes will be handled similar to ETA Change
+
+/* Defect 206.so This code should be called for each invoice line of the current Factory Invoice BOLID. Hence commenting and moving 
+     IF V_OCON != V_CONID  THEN 
+         V_UPDATE_FLAG = 'T';
+
+         ---- This code comment for new changes ----
+
+             -- INSERT INTO "#TT_MNET_ACTION"
+             -- Select 
+             -- V_BOLID as BOLID ,
+             -- V_BOL As BOL,
+             -- V_INVID as INVID,
+             -- V_CONID as CONID,
+             -- V_PO as PO,
+             -- 'D' As "ACTION", T0.OBJECTREFNO as DOCNUM
+             -- ,null "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'InboundDelivery' "OBJECTTYPE",1,'0'
+             -- from BTP_PANASONIC_MNETSTATUSMONITORING As T0 
+             -- Where T0.HOUSEBOLNUMBER = V_BOL 
+             -- And T0.INVOICENUMBER = V_INVID 
+             -- AND T0.CONTAINERID = V_OCON 
+             -- And T0.OBJECTTYPE = 'InboundDelivery' 
+             -- And T0.STATUS = 'S' And T0.ACTION ='C'
+             -- and Not Exists 
+             -- (Select 1 From BTP_PANASONIC_MNETSTATUSMONITORING As T1 
+             -- Where T1.HOUSEBOLNUMBER = T0.HOUSEBOLNUMBER 
+             -- And T0.INVOICENUMBER = T1.INVOICENUMBER 
+             -- AND T0.CONTAINERID = T1.CONTAINERID 
+             -- And T0.OBJECTTYPE = T1.OBJECTTYPE
+             -- And T0.STATUS = 'S'  And T0.ACTION ='D');
+
+             -- INSERT INTO "#TT_MNET_ACTION" 
+             -- Select 
+             --    V_BOLID as BOLID ,
+             --    V_BOL As BOL,
+             --    V_INVID as INVID,
+             --    V_CONID as CONID,
+             --    V_PO as PO,
+             -- 'R' As "ACTION", T0.OBJECTREFNO as DOCNUM
+             -- ,T0.GR_DATE "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'InboundDelivery' "OBJECTTYPE",1,'0'
+             -- from BTP_PANASONIC_MNETSTATUSMONITORING As T0 
+             -- Where T0.HOUSEBOLNUMBER = V_BOL 
+             -- And T0.INVOICENUMBER = V_INVID 
+             -- AND T0.CONTAINERID = V_OCON 
+             -- And T0.OBJECTTYPE = 'GoodsReceipt' 
+             -- And T0.STATUS = 'S' And  T0.ACTION = 'C'
+             -- and Not Exists 
+             -- (Select 1 From BTP_PANASONIC_MNETSTATUSMONITORING As T1 
+             -- Where T1.HOUSEBOLNUMBER = T0.HOUSEBOLNUMBER 
+             -- And T0.INVOICENUMBER = T1.INVOICENUMBER 
+             -- AND T0.CONTAINERID = T1.CONTAINERID 
+             -- And T0.OBJECTTYPE = T1.OBJECTTYPE
+             -- And T0.STATUS = 'S' And T0.ACTION = 'R');
+
+         ---- This code comment for new changes ----    
+
+             SELECT COUNT(*) into R1
+                 FROM MNET_WORKFLOW_GET_MNET_DATA AS T0 
+                 And T0.purchaseOrderNumber = V_PO;
+                 IF R1 > 0 THEN 
+
+                     FOR i IN 0..:R1 -1 DO
+                         SELECT T0.supplierPartID ,T0.PurchaseOrderItem , T0.quantity, T0.INVACTION,T0.UNITPRICE,T0.LINENUMBER
+                         into V_SUPPLIERPARTID , V_PURCHASEORDERITEM, V_QUANTITY , V_INVACTION,V_UNITPRICE,V_LINENUMBER
+                         FROM MNET_WORKFLOW_GET_MNET_DATA AS T0 
+                         WHERE T0.HOUSEBOLNUMBER = V_BOL AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+                         And T0.purchaseOrderNumber = V_PO
+                         AND T0.ID = V_BOLID 
+                         LIMIT 1 OFFSET :i;
+                                        
+                                     SELECT "GET_MNET_DETAILS"(V_BOL,V_INVID,V_OCON,V_PO,'InboundDelivery','',V_PURCHASEORDERITEM,'V_OBJID').V_OUTPUT INTO V_IBD_NO DEFAULT '' FROM DUMMY;
+                                     SELECT "GET_MNET_DETAILS"(V_BOL,V_INVID,V_OCON,V_PO,'InboundDelivery','',V_PURCHASEORDERITEM,'V_IBD_LINE').V_OUTPUT INTO V_SAP_LINE DEFAULT '' FROM DUMMY;
+                                     SELECT "GET_MNET_DETAILS"(V_BOL,V_INVID,V_OCON,V_PO,'GoodsReceipt',V_IBD_NO,V_PURCHASEORDERITEM,'V_GRDATE').V_OUTPUT INTO V_GR_DATE DEFAULT '' FROM DUMMY;
+                                     -- Defect206part3c.sn 
+									 SELECT "GET_MNET_DETAILS"(V_BOL,V_INVID,V_OCON,V_PO,'GoodsReceipt','',V_PURCHASEORDERITEM,'V_OBJID').V_OUTPUT INTO V_GR_NO DEFAULT '' FROM DUMMY;
+                                     SELECT "GET_MNET_DETAILS"(V_BOL,V_INVID,V_OCON,V_PO,'GoodsReceipt','',V_PURCHASEORDERITEM,'V_IBD_LINE').V_OUTPUT INTO V_GR_LINENO DEFAULT '' FROM DUMMY;
+                                     -- Defect206part3c.en 		
+									 
+                                     IF V_IBD_NO != '' THEN 
+                                         INSERT INTO "#TT_MNET_ACTION" 
+                                         Select 
+                                         V_BOLID as BOLID ,
+                                         V_BOL As BOL,
+                                         V_INVID as INVID,
+                                         V_CONID as CONID,
+                                         V_PO as PO,
+                                         'L' As "ACTION", V_IBD_NO "DOCNUM",null "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'InboundDelivery' "OBJECTTYPE",2,V_LINENUMBER From Dummy ;
+                                     
+                                        -- This For New Changes --
+                                         INSERT INTO "#TT_MNET_ITEM_IBD"
+                                                 Select 
+                                                 V_BOLID as BOLID ,
+                                                 V_BOL As BOL,
+                                                 V_INVID as INVID,
+                                                 V_CONID as CONID,
+                                                 V_PO as PO,
+                                                 'L' As "ACTION",
+                                                 V_IBD_NO As "IBD_NO",
+                                                 V_SAP_LINE as "IBD_LINE" ,
+                                                 T0.lineNumber ,
+                                                 T0.supplierPartID,
+                                                 IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                                                 IFNULL(T1.POITEM_NEW,T0.PurchaseOrderItem) as PurchaseOrderItem,
+                                                 '0' as "QuantityInPurchaseOrderUnit",
+                                                 '0' as "ActualDeliveryQuantity",
+                                                 null as "Batch",
+                                                 T0.Plant,
+                                                 IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                                                 IFNULL(T1.POITEM_NEW,T0.PurchaseOrderItem) as PurchaseOrderItem,
+                                                 T0.ValuationType
+                                                 from MNET_WORKFLOW_GET_MNET_DATA as T0 
+                                                 left join BTP_PANASONIC_POCROSSREF as T1 on T0.purchaseOrderNumber = T1.PO_OLD and T0.PurchaseOrderItem = T1.POITEM_OLD And IFNULL(T1.ISDELETE,'N') = 'N'
+                                                 WHERE T0.HOUSEBOLNUMBER = V_BOL AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+                                                 And T0.purchaseOrderNumber = V_PO
+                                                 AND T0.ID = V_BOLID  And T0.PurchaseOrderItem = V_PURCHASEORDERITEM
+                                                 Order by T0.PurchaseOrderItem; 
+                                     END IF;
+             
+                                     IF V_GR_DATE != '' THEN 
+                                         INSERT INTO "#TT_MNET_ACTION" 
+                                         Select 
+                                         V_BOLID as BOLID ,
+                                         V_BOL As BOL,
+                                         V_INVID as INVID,
+                                         V_CONID as CONID,
+                                         V_PO as PO,
+      -- Defect206part3c.o               'R' As "ACTION", V_IBD_NO "DOCNUM",V_GR_DATE "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'GoodsReceipt' "OBJECTTYPE",4,V_LINENUMBER From Dummy ;
+                                         'R' As "ACTION", V_GR_NO "DOCNUM",V_GR_DATE "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'GoodsReceipt' "OBJECTTYPE",4,V_GR_LINENO From Dummy ;										 
+                                     END IF;                                        
+                                 
+                     END FOR;
+                 
+                 END IF;
+
+
+         INSERT INTO "#TT_MNET_ACTION"
+             Select 
+             V_BOLID as BOLID ,
+             V_BOL As BOL,
+             V_INVID as INVID,
+             V_CONID as CONID,
+             V_PO as PO,
+             'C' As "ACTION", null "DOCNUM",null "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'InboundDelivery' "OBJECTTYPE",5,'0' From Dummy ;
+
+             INSERT INTO "#TT_MNET_ITEM_IBD"
+             Select 
+             V_BOLID as BOLID ,
+             V_BOL As BOL,
+             V_INVID as INVID,
+             V_CONID as CONID,
+             V_PO as PO,
+             'C' As "ACTION",
+             null as "IBD_NO",
+             null as "IBD_LINE" ,
+             T0.lineNumber ,
+             T0.supplierPartID,
+             IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+             IFNULL(T1.POITEM_NEW,T0.PurchaseOrderItem) as PurchaseOrderItem,
+             T0.quantity,
+             T0.quantity,
+             null as "Batch",
+             T0.Plant,
+             IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+              IFNULL(T1.POITEM_NEW,T0.PurchaseOrderItem) as PurchaseOrderItem,
+             T0.ValuationType
+             from MNET_WORKFLOW_GET_MNET_DATA as T0 
+             left join BTP_PANASONIC_POCROSSREF as T1 on T0.purchaseOrderNumber = T1.PO_OLD and T0.PurchaseOrderItem = T1.POITEM_OLD And IFNULL(T1.ISDELETE,'N') = 'N'
+             WHERE T0.HOUSEBOLNUMBER = V_BOL AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+             And T0.purchaseOrderNumber = V_PO
+             AND T0.ID = V_BOLID 
+             AND IFNULL(T0.PASCOriginalPartsNbr,'') = ''
+             Order by T0.PurchaseOrderItem; 
+
+             --- For Subtitution Changes ---- 
+             INSERT INTO "#TT_MNET_ITEM_IBD"
+             Select 
+             V_BOLID as BOLID ,
+             V_BOL As BOL,
+             V_INVID as INVID,
+             V_CONID as CONID,
+             V_PO as PO,
+             'C' As "ACTION",
+             null as "IBD_NO",
+             null as "IBD_LINE" ,
+             T0.lineNumber ,
+             T0.supplierPartID,
+             IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+             IFNULL(T1.POITEM_NEW,T0.PO_ITEMID) as PurchaseOrderItem,
+             T0.quantity,
+             T0.quantity,
+             null as "Batch",
+             T0.Plant,
+             IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+              IFNULL(T1.POITEM_NEW,T0.PO_ITEMID) as PurchaseOrderItem,
+             T0.ValuationType
+             from MNET_WORKFLOW_GET_MNET_DATA_SUB as T0 
+             left join BTP_PANASONIC_POCROSSREF as T1 on T0.purchaseOrderNumber = T1.PO_OLD and T0.PurchaseOrderItem = T1.POITEM_OLD And IFNULL(T1.ISDELETE,'N') = 'N'
+             WHERE T0.HOUSEBOLNUMBER = V_BOL AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+             And T0.purchaseOrderNumber = V_PO
+             AND T0.ID = V_BOLID 
+             Order by T0.PurchaseOrderItem; 
+
+
+     END IF;  
+Defect 206.eo */
+
+
+     -- Defect206part3.o    IF O_INITIALDESTINATIONETA != C_INITIALDESTINATIONETA  THEN
+	 
+	 IF ( V_OBOL != V_BOL OR O_INITIALDESTINATIONETA != C_INITIALDESTINATIONETA ) THEN   -- Defect 206part3.n
+         INSERT INTO "#TT_MNET_ACTION"
+         Select 
+         V_BOLID as BOLID ,
+         V_BOL As BOL,
+         V_INVID as INVID,
+         V_CONID as CONID,
+         V_PO as PO,
+         'U' As "ACTION", T0.OBJECTREFNO as DOCNUM
+         ,null "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'InboundDelivery' "OBJECTTYPE",1,'0'
+         from BTP_PANASONIC_MNETSTATUSMONITORING As T0 
+      -- Defect206part3.o    Where T0.HOUSEBOLNUMBER = V_BOL 
+         Where T0.HOUSEBOLNUMBER = V_HOLD_BOLNUM			                -- Defect206part3.n
+         And T0.INVOICENUMBER = V_INVID 
+         AND T0.CONTAINERID = V_CONID 
+         And T0.OBJECTTYPE = 'InboundDelivery' 
+ --       And T0.STATUS = 'S' And T0.ACTION ='C'
+         And T0.STATUS = 'S' And (T0.ACTION ='C' Or T0.ACTION ='U')         -- Defect206part3d.n
+         and Not Exists 
+         (Select 1 From BTP_PANASONIC_MNETSTATUSMONITORING As T1 
+         Where T1.HOUSEBOLNUMBER = T0.HOUSEBOLNUMBER 
+         And T0.INVOICENUMBER = T1.INVOICENUMBER 
+         AND T0.CONTAINERID = T1.CONTAINERID 
+         And T0.OBJECTTYPE = T1.OBJECTTYPE
+         And T0.STATUS = 'S'  And T0.ACTION ='D');
+
+         INSERT INTO "#TT_MNET_ACTION" 
+         Select 
+             V_BOLID as BOLID ,
+             V_BOL As BOL,
+             V_INVID as INVID,
+             V_CONID as CONID,
+             V_PO as PO,
+         'R' As "ACTION", T0.OBJECTREFNO as DOCNUM
+         ,T0.GR_DATE "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'GoodsReceipt' "OBJECTTYPE",1,'0'
+         from BTP_PANASONIC_MNETSTATUSMONITORING As T0 
+       --Defect206part3.o     Where T0.HOUSEBOLNUMBER = V_BOL 
+         Where T0.HOUSEBOLNUMBER = V_HOLD_BOLNUM			--  Defect206part3.n		 
+         And T0.INVOICENUMBER = V_INVID 
+         AND T0.CONTAINERID = V_CONID 
+         And T0.OBJECTTYPE = 'GoodsReceipt' 
+     --  And T0.STATUS = 'S' And T0.ACTION ='C'
+         And T0.STATUS = 'S' And (T0.ACTION ='C' Or T0.ACTION ='U')         -- Defect206part3d.n
+         and Not Exists 
+         (Select 1 From BTP_PANASONIC_MNETSTATUSMONITORING As T1 
+         Where T1.HOUSEBOLNUMBER = T0.HOUSEBOLNUMBER 
+         And T0.INVOICENUMBER = T1.INVOICENUMBER 
+         AND T0.CONTAINERID = T1.CONTAINERID 
+         And T0.OBJECTTYPE = T1.OBJECTTYPE
+         And T0.STATUS = 'S' And T0.ACTION = 'R');
+     END IF;
+     
+     IF V_UPDATE_FLAG = 'F' THEN 
+
+         SELECT COUNT(*) into R1
+         FROM MNET_WORKFLOW_GET_MNET_DATA AS T0 
+    --Defect206part3.o     WHERE T0.HOUSEBOLNUMBER = V_BOL AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+		 WHERE T0.HOUSEBOLNUMBER = V_HOLD_BOLNUM AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID --  Defect206part3.n
+         And T0.purchaseOrderNumber = V_PO
+         AND T0.ID = V_BOLID ;
+         IF R1 > 0 THEN 
+             FOR i IN 0..:R1 -1 DO
+                 SELECT T0.supplierPartID ,T0.PurchaseOrderItem , T0.quantity, T0.INVACTION,T0.UNITPRICE,T0.LINENUMBER
+                 into V_SUPPLIERPARTID , V_PURCHASEORDERITEM, V_QUANTITY , V_INVACTION,V_UNITPRICE,V_LINENUMBER
+                 FROM MNET_WORKFLOW_GET_MNET_DATA AS T0 
+    --Defect206part3.o     WHERE T0.HOUSEBOLNUMBER = V_BOL AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+				 WHERE T0.HOUSEBOLNUMBER = V_HOLD_BOLNUM AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID --  Defect206part3.n
+                 And T0.purchaseOrderNumber = V_PO
+                 AND T0.ID = V_BOLID 
+                 ORDER BY T0.LINENUMBER,T0.PurchaseOrderItem  -- Defect 206,n
+                 LIMIT 1 OFFSET :i;
+                 IF UPPER(V_INVACTION) = 'M' THEN 
+                     Select Count(T0.ID) into R_CNT  from MNET_WORKFLOW_GET_MNET_DATA As T0 
+                     WHERE T0.HOUSEBOLNUMBER = V_HOLD_BOLNUM AND T0.INVOICENUMBER = V_INVID  			--  Defect206part3.n Replaced V_BOL
+					 And T0.purchaseOrderNumber = V_PO And T0.PurchaseOrderItem = V_PURCHASEORDERITEM
+					 AND T0.ID < V_BOLID;    	-- Defect 206part3.n BOLID is sequentially incremented
+     --Defect206part3.o  AND T0.ID != V_BOLID ;	
+						 IF R_CNT = 0 THEN 												--  Defect206part3a.sn
+							NewLineForChangedInvoiceFlag = TRUE; 		 
+						 ELSE
+							NewLineForChangedInvoiceFlag = FALSE;
+						 END IF; 														--  Defect206part3a.en 
+						 IF R_CNT > 0 THEN
+                             Select Max(T0.ID) into V_OBOLID  from MNET_WORKFLOW_GET_MNET_DATA As T0 
+     --Defect206part3.o      WHERE T0.HOUSEBOLNUMBER = V_BOL AND T0.INVOICENUMBER = V_INVID 
+     --Defect206.o			 AND T0.CONTAINERID = V_CONID
+                             WHERE T0.HOUSEBOLNUMBER = V_HOLD_BOLNUM  AND T0.INVOICENUMBER = V_INVID	--  Defect206part3.n
+                             AND TRIM(T0.LINENUMBER) = V_LINENUMBER 				-- Defect 206.n                                
+                             And T0.purchaseOrderNumber = V_PO And T0.PurchaseOrderItem = V_PURCHASEORDERITEM
+                             AND T0.ID < V_BOLID;		-- Defect206part3a.n BOLID is sequential.. need to get from previous run for data integrity purposes.
+	-- Defect206part3a.o	 AND T0.ID != V_BOLID  ;	 
+                             
+                              -- Under the conditions where Container Number changes and for given invoice line this is the 1st occurance, 
+							  -- the R_CNT will be 0 and V_OBOLID is evaluated as NULL 
+							 
+-- Defect 206.sn Start of Check and Processing of Container Change Actions
+                             CR_CNT = 0;
+                             Select Count(TC0.CONTAINERID) into CR_CNT 
+                             From MNET_WORKFLOW_GET_MNET_DATA As TC0 Where 
+     --Defect206part3.o      TC0.importShipmentNumber = V_importShipmentNumber And TC0.ID = V_OBOLID and TC0.HOUSEBOLNUMBER = V_BOL
+                             TC0.importShipmentNumber = V_importShipmentNumber And TC0.ID = V_OBOLID and TC0.HOUSEBOLNUMBER = V_HOLD_BOLNUM		--  Defect206part3.n
+							 AND TC0.INVOICENUMBER = V_INVID and TC0.LINENUMBER = V_LINENUMBER 
+                             AND TC0.purchaseOrderNumber = V_PO And TC0.PurchaseOrderItem = V_PURCHASEORDERITEM
+                             AND TC0.CONTAINERID != V_CONID; 
+                             IF ( CR_CNT > 0 ) THEN
+                                 Select top 1 
+                                 TC0.CONTAINERID 
+                                 INTO 
+                                 V_OCON
+                                 From MNET_WORKFLOW_GET_MNET_DATA As TC0 Where 
+     --Defect206part3.o          TC0.importShipmentNumber = V_importShipmentNumber And TC0.ID = V_OBOLID and TC0.HOUSEBOLNUMBER = V_BOL
+								 TC0.importShipmentNumber = V_importShipmentNumber And TC0.ID = V_OBOLID and TC0.HOUSEBOLNUMBER = V_HOLD_BOLNUM		--  Defect206part3.n
+                                 AND TC0.INVOICENUMBER = V_INVID and TC0.LINENUMBER = V_LINENUMBER 
+                                 AND TC0.purchaseOrderNumber = V_PO And TC0.PurchaseOrderItem = V_PURCHASEORDERITEM
+                                 AND TC0.CONTAINERID != V_CONID; 
+                             END IF;
+-- Start of Check and Processing of Quantity and Price Change Actions		Defect 206.en		
+-- Determining Orginal Containerid
+                             CR_CNT = 0;								    --Defect 206 02042024
+                             Select Count(T0.CONTAINERID) into CR_CNT  From MNET_WORKFLOW_GET_MNET_DATA As T0 
+      --Defect206part3.o     WHERE T0.HOUSEBOLNUMBER = V_BOL AND T0.INVOICENUMBER = V_INVID
+							 WHERE T0.HOUSEBOLNUMBER = V_HOLD_BOLNUM AND T0.INVOICENUMBER = V_INVID --  Defect206part3.n
+                             AND T0.LINENUMBER = V_LINENUMBER   				-- Defect#206.n
+                             AND T0.purchaseOrderNumber = V_PO And T0.PurchaseOrderItem = V_PURCHASEORDERITEM
+                             AND T0.ID = V_OBOLID  ;	
+                             IF ( CR_CNT > 0 ) THEN							-- Defect#206.en				
+                                 Select T0.QUANTITY, T0.UNITPRICE, T0.CONTAINERID into V_OQUANTITY,V_OUNITPRICE, V_OCON From MNET_WORKFLOW_GET_MNET_DATA As T0 
+      --Defect206part3.o         WHERE T0.HOUSEBOLNUMBER = V_BOL AND T0.INVOICENUMBER = V_INVID 
+                                 WHERE T0.HOUSEBOLNUMBER = V_HOLD_BOLNUM AND T0.INVOICENUMBER = V_INVID 	-- Defect#206.n
+-- Defect#206.o 				    AND T0.CONTAINERID = V_CONID
+                                 and T0.LINENUMBER = V_LINENUMBER   -- Defect#206.n
+                                 And T0.purchaseOrderNumber = V_PO And T0.PurchaseOrderItem = V_PURCHASEORDERITEM
+                                 AND T0.ID = V_OBOLID  ;
+                             END IF; 									-- Defect#206.n	   
+-- Defect#206.sn
+
+-- Moving code for Container Change here so that updates occur at line item
+-- Replaced V_BOL with V_HOLD_BOLNUM in the code below for Defect 206part3.ReplaceVBOLwithV_HOLD_NUM.start
+-- Defect#206.o				 IF V_CONID != V_OCON THEN
+                             IF ( CR_CNT > 0 and V_CONID != V_OCON ) THEN
+                                     SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_OCON,V_PO,'InboundDelivery','',V_PURCHASEORDERITEM,'V_OBJID').V_OUTPUT INTO V_IBD_NO DEFAULT '' FROM DUMMY;
+                                     SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_OCON,V_PO,'InboundDelivery','',V_PURCHASEORDERITEM,'V_IBD_LINE').V_OUTPUT INTO V_SAP_LINE DEFAULT '' FROM DUMMY;
+                                     SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_OCON,V_PO,'GoodsReceipt',V_IBD_NO,V_PURCHASEORDERITEM,'V_GRDATE').V_OUTPUT INTO V_GR_DATE DEFAULT '' FROM DUMMY;
+                                                  -- Defect206part3c.sn 
+									 SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_OCON,V_PO,'GoodsReceipt','',V_PURCHASEORDERITEM,'V_OBJID').V_OUTPUT INTO V_GR_NO DEFAULT '' FROM DUMMY;
+                                     SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_OCON,V_PO,'GoodsReceipt','',V_PURCHASEORDERITEM,'V_IBD_LINE').V_OUTPUT INTO V_GR_LINENO DEFAULT '' FROM DUMMY;
+												-- Defect206part3c.en
+												
+                                     IF V_IBD_NO != '' THEN 
+                                         INSERT INTO "#TT_MNET_ACTION" 
+                                         Select 
+                                         V_BOLID as BOLID ,
+                                         V_BOL as BOL,
+                                         V_INVID as INVID,
+                                         V_CONID as CONID,
+                                         V_PO as PO,
+                                         'L' As "ACTION", V_IBD_NO "DOCNUM",null "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'InboundDelivery' "OBJECTTYPE",2,V_LINENUMBER From Dummy ;
+												
+												V_CONIDFLAG = TRUE; 		-- Defect206part3a.n Flag that "C" flag transactions are inserted                                  
+                                        -- This For New Changes --
+                                         INSERT INTO "#TT_MNET_ITEM_IBD"
+                                                 Select 
+                                                 V_BOLID as BOLID ,
+                                                 V_BOL As BOL,
+                                                 V_INVID as INVID,
+                                                 V_CONID as CONID,
+                                                 V_PO as PO,
+                                                 'L' As "ACTION",
+                                                 V_IBD_NO As "IBD_NO",
+                                                 V_SAP_LINE as "IBD_LINE" ,
+                                                 T0.lineNumber ,
+                                                 T0.supplierPartID,
+                                                 IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                                                 IFNULL(T1.POITEM_NEW,T0.PurchaseOrderItem) as PurchaseOrderItem,
+                                                 '0' as "QuantityInPurchaseOrderUnit",
+                                                 '0' as "ActualDeliveryQuantity",
+                                                 null as "Batch",
+                                                 T0.Plant,
+                                                 IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                                                 IFNULL(T1.POITEM_NEW,T0.PurchaseOrderItem) as PurchaseOrderItem,
+                                                 T0.ValuationType
+                                                 from MNET_WORKFLOW_GET_MNET_DATA as T0 
+                                                 left join BTP_PANASONIC_POCROSSREF as T1 on T0.purchaseOrderNumber = T1.PO_OLD and T0.PurchaseOrderItem = T1.POITEM_OLD And IFNULL(T1.ISDELETE,'N') = 'N'
+                                                 WHERE T0.HOUSEBOLNUMBER = V_HOLD_BOLNUM AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+                                                 And T0.purchaseOrderNumber = V_PO
+                                                 AND T0.ID =V_BOLID And T0.PurchaseOrderItem = V_PURCHASEORDERITEM
+                                                 Order by T0.PurchaseOrderItem; 
+                                     END IF;
+
+                                     IF V_GR_DATE != '' THEN 
+                                         INSERT INTO "#TT_MNET_ACTION" 
+                                         Select 
+                                         V_BOLID as BOLID ,
+                                         V_BOL As BOL,
+                                         V_INVID as INVID,
+                                         V_CONID as CONID,
+                                         V_PO as PO,
+ --Defect206part3c.o                     'R' As "ACTION", V_IBD_NO "DOCNUM",V_GR_DATE "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'GoodsReceipt' "OBJECTTYPE",4,V_LINENUMBER From Dummy ;
+									     'R' As "ACTION", V_GR_NO "DOCNUM",V_GR_DATE "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'GoodsReceipt' "OBJECTTYPE",4,V_GR_LINENO From Dummy ;
+                                     END IF;
+              
+										-- Defect 206part3a Moving the code for Creating entries to after quantity related change to avoid duplicates
+
+                             END IF; 		
+
+-- Defect#206.en
+
+-- Defect#206.o                 IF V_QUANTITY != V_OQUANTITY THEN 
+-- Defect#206.o                 IF V_CONID = V_OCON and V_QUANTITY != V_OQUANTITY  THEN  -- Defect#206.n
+                             -- IF ( CR_CNT > 0 and V_CONID = V_OCON and V_QUANTITY != V_OQUANTITY ) THEN -- Defect#206.n
+                             IF ( CR_CNT > 0 and V_QUANTITY != V_OQUANTITY ) THEN
+                                 SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'InboundDelivery','',V_PURCHASEORDERITEM,'V_OBJID').V_OUTPUT INTO V_IBD_NO DEFAULT '' FROM DUMMY;
+                                 SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'InboundDelivery','',V_PURCHASEORDERITEM,'V_IBD_LINE').V_OUTPUT INTO V_SAP_LINE DEFAULT '' FROM DUMMY;
+                                 SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'GoodsReceipt',V_IBD_NO,V_PURCHASEORDERITEM,'V_GRDATE').V_OUTPUT INTO V_GR_DATE DEFAULT '' FROM DUMMY;
+                                                  -- Defect206part3c.sn 
+								 SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'GoodsReceipt','',V_PURCHASEORDERITEM,'V_OBJID').V_OUTPUT INTO V_GR_NO DEFAULT '' FROM DUMMY;
+                                 SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'GoodsReceipt','',V_PURCHASEORDERITEM,'V_IBD_LINE').V_OUTPUT INTO V_GR_LINENO DEFAULT '' FROM DUMMY;
+												-- Defect206part3c.en								 
+
+                                 IF V_IBD_NO != '' THEN 
+                                     INSERT INTO "#TT_MNET_ACTION" 
+                                     Select 
+                                     V_BOLID as BOLID ,
+                                     V_BOL As BOL,
+                                     V_INVID as INVID,
+                                     V_CONID as CONID,
+                                     V_PO as PO,
+                                     'L' As "ACTION", V_IBD_NO "DOCNUM",null "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'InboundDelivery' "OBJECTTYPE",2,V_LINENUMBER From Dummy ;
+
+                                     INSERT INTO "#TT_MNET_ITEM_IBD"
+                                     Select 
+                                     V_BOLID as BOLID ,
+                                     V_BOL As BOL,
+                                     V_INVID as INVID,
+                                     V_CONID as CONID,
+                                     V_PO as PO,
+                                     'L' As "ACTION",
+                                     V_IBD_NO As "IBD_NO",
+                                     V_SAP_LINE as "IBD_LINE" ,
+                                     T0.lineNumber ,
+                                     T0.supplierPartID,
+                                     IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                                     IFNULL(T1.POITEM_NEW,T0.PurchaseOrderItem) as PurchaseOrderItem,
+                                     0 ,
+                                     0,
+                                     null as "Batch",
+                                     T0.Plant,
+                                     IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                                     IFNULL(T1.POITEM_NEW,T0.PurchaseOrderItem) as PurchaseOrderItem,
+                                     T0.ValuationType
+                                     from MNET_WORKFLOW_GET_MNET_DATA as T0 
+                                     left join BTP_PANASONIC_POCROSSREF as T1 on T0.purchaseOrderNumber = T1.PO_OLD and T0.PurchaseOrderItem = T1.POITEM_OLD And IFNULL(T1.ISDELETE,'N') = 'N'
+                                     WHERE T0.HOUSEBOLNUMBER = V_HOLD_BOLNUM AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+                                     And T0.purchaseOrderNumber = V_PO
+                                     AND T0.ID = V_BOLID  And T0.PurchaseOrderItem = V_PURCHASEORDERITEM
+                                     Order by T0.PurchaseOrderItem; 
+                                 END IF;
+
+								 V_CONIDFLAG = TRUE; 					-- Defect206part3a.n Flag that "C" flag transactions are inserted
+                             
+                                 INSERT INTO "#TT_MNET_ACTION" 
+                                 Select 
+                                 V_BOLID as BOLID ,
+                                 V_BOL As BOL,
+                                 V_INVID as INVID,
+                                 V_CONID as CONID,
+                                 V_PO as PO,
+                                 'C' As "ACTION", null "DOCNUM",null "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'InboundDelivery' "OBJECTTYPE",5,V_LINENUMBER From Dummy ;
+
+                                 INSERT INTO "#TT_MNET_ITEM_IBD"
+                                 Select 
+                                 V_BOLID as BOLID ,
+                                 V_BOL As BOL,
+                                 V_INVID as INVID,
+                                 V_CONID as CONID,
+                                 V_PO as PO,
+                                 'C' As "ACTION",
+                                 null as "IBD_NO",
+                                 null as "IBD_LINE" ,
+                                 T0.lineNumber ,
+                                 T0.supplierPartID,
+                                 IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                                 IFNULL(T1.POITEM_NEW,T0.PurchaseOrderItem) as PurchaseOrderItem,
+                                 T0.quantity ,
+                                 T0.quantity ,
+                                 null as "Batch",
+                                 T0.Plant,
+                                 IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                                 IFNULL(T1.POITEM_NEW,T0.PurchaseOrderItem) as PurchaseOrderItem,
+                                 T0.ValuationType
+                                 from MNET_WORKFLOW_GET_MNET_DATA as T0 
+                                 left join BTP_PANASONIC_POCROSSREF as T1 on T0.purchaseOrderNumber = T1.PO_OLD and T0.PurchaseOrderItem = T1.POITEM_OLD And IFNULL(T1.ISDELETE,'N') = 'N'
+                                 WHERE T0.HOUSEBOLNUMBER = V_HOLD_BOLNUM AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+                                 And T0.purchaseOrderNumber = V_PO
+                                 AND T0.ID = V_BOLID  And T0.PurchaseOrderItem = V_PURCHASEORDERITEM
+                                 And IFNULL(T0.PASCOriginalPartsNbr,'') = ''
+                                 Order by T0.PurchaseOrderItem; 
+
+                                 --- Subtitution Item ---
+                                 INSERT INTO "#TT_MNET_ITEM_IBD"
+                                 Select 
+                                 V_BOLID as BOLID ,
+                                 V_BOL As BOL,
+                                 V_INVID as INVID,
+                                 V_CONID as CONID,
+                                 V_PO as PO,
+                                 'C' As "ACTION",
+                                 null as "IBD_NO",
+                                 null as "IBD_LINE" ,
+                                 T0.lineNumber ,
+                                 T0.supplierPartID,
+                                 IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                                 IFNULL(T1.POITEM_NEW,T0.PO_ITEMID) as PurchaseOrderItem,
+                                 T0.quantity ,
+                                 T0.quantity ,
+                                 null as "Batch",
+                                 T0.Plant,
+                                 IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                                 IFNULL(T1.POITEM_NEW,T0.PO_ITEMID) as PurchaseOrderItem,
+                                 T0.ValuationType
+                                 from MNET_WORKFLOW_GET_MNET_DATA_SUB as T0 
+                                 left join BTP_PANASONIC_POCROSSREF as T1 on T0.purchaseOrderNumber = T1.PO_OLD and T0.PurchaseOrderItem = T1.POITEM_OLD And IFNULL(T1.ISDELETE,'N') = 'N'
+                                 WHERE T0.HOUSEBOLNUMBER = V_HOLD_BOLNUM AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+                                 And T0.purchaseOrderNumber = V_PO
+                                 AND T0.ID = V_BOLID  And T0.PurchaseOrderItem = V_PURCHASEORDERITEM
+                                 Order by T0.PurchaseOrderItem; 
+
+                                 IF V_GR_DATE != '' THEN 
+                                     INSERT INTO "#TT_MNET_ACTION" 
+                                     Select 
+                                     V_BOLID as BOLID ,
+                                     V_BOL As BOL,
+                                     V_INVID as INVID,
+                                     V_CONID as CONID,
+                                     V_PO as PO,
+     -- Defect206part3c.o            'R' As "ACTION", V_IBD_NO "DOCNUM",V_GR_DATE "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'GoodsReceipt' "OBJECTTYPE",4,'0' From Dummy ;
+		                             'R' As "ACTION", V_GR_NO "DOCNUM",V_GR_DATE "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'GoodsReceipt' "OBJECTTYPE",4,V_GR_LINENO From Dummy ;
+                                 END IF;
+
+                                 SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'Invoice','',V_PURCHASEORDERITEM,'V_OBJID').V_OUTPUT INTO V_INV_NO DEFAULT '' FROM DUMMY;
+                                 SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'Invoice','',V_PURCHASEORDERITEM,'V_FISCALYEAR').V_OUTPUT INTO V_INV_YEAR DEFAULT '' FROM DUMMY;
+                                 SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'Invoice','',V_PURCHASEORDERITEM,'V_DATE').V_OUTPUT INTO V_INV_DATE DEFAULT '' FROM DUMMY;
+
+                                 IF V_INV_NO != '' THEN 
+                                     INSERT INTO "#TT_MNET_ACTION" 
+                                     Select 
+                                     V_BOLID as BOLID ,
+                                     V_BOL As BOL,
+                                     V_INVID as INVID,
+                                     V_CONID as CONID,
+                                     V_PO as PO,
+                                     'D' As "ACTION", V_INV_NO "DOCNUM",V_INV_DATE "DATE",V_INV_YEAR "FISCALYEAR" ,'03' "REVERSALREASON" ,'Invoice' "OBJECTTYPE",1,V_LINENUMBER From Dummy ;
+                                 END IF;
+
+                                 INSERT INTO "#TT_MNET_ACTION" 
+                                 Select 
+                                 V_BOLID as BOLID ,
+                                 V_BOL As BOL,
+                                 V_INVID as INVID,
+                                 V_CONID as CONID,
+                                 V_PO as PO,
+                                 'C' As "ACTION", null "DOCNUM",null "DATE",null "FISCALYEAR" ,'03' "REVERSALREASON" ,'Invoice' "OBJECTTYPE",2,V_LINENUMBER From Dummy ;
+
+                                 INSERT INTO "#TT_MNET_ITEM_INV"
+                                 Select 
+                                 V_BOLID as BOLID ,
+                                 V_BOL As BOL,
+                                 V_INVID as INVID,
+                                 V_CONID as CONID,
+                                 V_PO as PO,
+                                 'C' As "ACTION",
+                                 null as "IBD_LINE" ,
+                                 T0.lineNumber ,
+                                 T0.supplierPartID,
+                                 IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                                 IFNULL(T1.POITEM_NEW,T0.PurchaseOrderItem) as PurchaseOrderItem,
+                                 '1' as SupplierInvoiceItem ,
+                                 T0.Plant,
+                                 'I0' as TaxCode,
+                                 T0.invoiceCurrencyCode as DocumentCurrency,
+                                 T0.extendedCost as SupplierInvoiceItemAmount,
+                                 T0.partUnitOfMeasurement as PurchaseOrderQuantityUnit,
+                                 T0.quantity as QuantityInPurchaseOrderUnit,
+                                 T0.lineNumber as SupplierInvoiceItemText
+                                 from MNET_WORKFLOW_GET_MNET_DATA as T0 
+                                 left join BTP_PANASONIC_POCROSSREF as T1 on T0.purchaseOrderNumber = T1.PO_OLD and T0.PurchaseOrderItem = T1.POITEM_OLD And IFNULL(T1.ISDELETE,'N') = 'N'
+                                 WHERE T0.HOUSEBOLNUMBER = V_HOLD_BOLNUM AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+                                 And T0.purchaseOrderNumber = V_PO
+                                 AND T0.ID = V_BOLID  And T0.PurchaseOrderItem = V_PURCHASEORDERITEM
+                                 And IFNULL(T0.PASCOriginalPartsNbr,'') = ''
+                                 Order by T0.PurchaseOrderItem; 
+
+                                 --- For Subtituion Item --- 
+                                 INSERT INTO "#TT_MNET_ITEM_INV"
+                                 Select 
+                                 V_BOLID as BOLID ,
+                                 V_BOL As BOL,
+                                 V_INVID as INVID,
+                                 V_CONID as CONID,
+                                 V_PO as PO,
+                                 'C' As "ACTION",
+                                 null as "IBD_LINE" ,
+                                 T0.lineNumber ,
+                                 T0.supplierPartID,
+                                 IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                                 IFNULL(T1.POITEM_NEW,T0.PO_ITEMID) as PurchaseOrderItem,
+                                 '1' as SupplierInvoiceItem ,
+                                 T0.Plant,
+                                 'I0' as TaxCode,
+                                 T0.invoiceCurrencyCode as DocumentCurrency,
+                                 T0.extendedCost as SupplierInvoiceItemAmount,
+                                 T0.partUnitOfMeasurement as PurchaseOrderQuantityUnit,
+                                 T0.quantity as QuantityInPurchaseOrderUnit,
+                                 T0.lineNumber as SupplierInvoiceItemText
+                                 from MNET_WORKFLOW_GET_MNET_DATA_SUB as T0 
+                                 left join BTP_PANASONIC_POCROSSREF as T1 on T0.purchaseOrderNumber = T1.PO_OLD and T0.PurchaseOrderItem = T1.POITEM_OLD And IFNULL(T1.ISDELETE,'N') = 'N'
+                                 WHERE T0.HOUSEBOLNUMBER = V_HOLD_BOLNUM AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+                                 And T0.purchaseOrderNumber = V_PO
+                                 AND T0.ID = V_BOLID  And T0.PurchaseOrderItem = V_PURCHASEORDERITEM
+                                 Order by T0.PurchaseOrderItem; 
+
+
+                             END IF;
+
+							 -- Defect 206part3a Moving the code for Creating entries to after quantity related change to avoid duplicates
+			  
+                             -- Insert the following records only once for set of records being reversed above
+ 							 IF ( V_CONIDFLAG = TRUE) then    												 
+                                         V_CONIDFLAG = FALSE;
+                                         
+                                         INSERT INTO "#TT_MNET_ACTION"
+                                         Select 
+                                         V_BOLID as BOLID ,
+                                         V_BOL As BOL,
+                                         V_INVID as INVID,
+                                         V_CONID as CONID,
+                                         V_PO as PO,
+	--Defect206part3a.o					'C' As "ACTION", null "DOCNUM",null "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'InboundDelivery' "OBJECTTYPE",5,'0' From Dummy ;
+										'C' As "ACTION", null "DOCNUM",null "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'InboundDelivery' "OBJECTTYPE",5,V_LINENUMBER From Dummy ;
+																				 
+                                         INSERT INTO "#TT_MNET_ITEM_IBD"
+                                         Select 
+                                         V_BOLID as BOLID ,
+                                         V_BOL As BOL,
+                                         V_INVID as INVID,
+                                         V_CONID as CONID,
+                                         V_PO as PO,
+                                         'C' As "ACTION",
+                                         null as "IBD_NO",
+                                         null as "IBD_LINE" ,
+                                         T0.lineNumber ,
+                                         T0.supplierPartID,
+                                         IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                                         IFNULL(T1.POITEM_NEW,T0.PurchaseOrderItem) as PurchaseOrderItem,
+                                         T0.quantity,
+                                         T0.quantity,
+                                         null as "Batch",
+                                         T0.Plant,
+                                         IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                                          IFNULL(T1.POITEM_NEW,T0.PurchaseOrderItem) as PurchaseOrderItem,
+                                         T0.ValuationType
+                                         from MNET_WORKFLOW_GET_MNET_DATA as T0 
+                                         left join BTP_PANASONIC_POCROSSREF as T1 on T0.purchaseOrderNumber = T1.PO_OLD and T0.PurchaseOrderItem = T1.POITEM_OLD And IFNULL(T1.ISDELETE,'N') = 'N'
+                                         WHERE T0.HOUSEBOLNUMBER = V_HOLD_BOLNUM AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+                                         And T0.purchaseOrderNumber = V_PO
+                                         AND T0.ID = V_BOLID 
+                                         AND IFNULL(T0.PASCOriginalPartsNbr,'') = ''
+                                         Order by T0.PurchaseOrderItem; 
+
+                                         --- For Subtitution Changes ---- 
+                                         INSERT INTO "#TT_MNET_ITEM_IBD"
+                                         Select 
+                                         V_BOLID as BOLID ,
+                                         V_BOL As BOL,
+                                         V_INVID as INVID,
+                                         V_CONID as CONID,
+                                         V_PO as PO,
+                                         'C' As "ACTION",
+                                         null as "IBD_NO",
+                                         null as "IBD_LINE" ,
+                                         T0.lineNumber ,
+                                         T0.supplierPartID,
+                                         IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                                         IFNULL(T1.POITEM_NEW,T0.PO_ITEMID) as PurchaseOrderItem,
+                                         T0.quantity,
+                                         T0.quantity,
+                                         null as "Batch",
+                                         T0.Plant,
+                                         IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                                          IFNULL(T1.POITEM_NEW,T0.PO_ITEMID) as PurchaseOrderItem,
+                                         T0.ValuationType
+                                         from MNET_WORKFLOW_GET_MNET_DATA_SUB as T0 
+                                         left join BTP_PANASONIC_POCROSSREF as T1 on T0.purchaseOrderNumber = T1.PO_OLD and T0.PurchaseOrderItem = T1.POITEM_OLD And IFNULL(T1.ISDELETE,'N') = 'N'
+                                         WHERE T0.HOUSEBOLNUMBER = V_HOLD_BOLNUM AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+                                         And T0.purchaseOrderNumber = V_PO
+                                         AND T0.ID = V_BOLID 
+                                         Order by T0.PurchaseOrderItem; 
+
+							 END IF;	-- Defect 206part3a.. Related Activity
+                          
+						  
+--							    IF V_CONID = V_OCON THEN     									-- Defect 206.n
+                             -- IF ( CR_CNT > 0 and V_CONID = V_OCON  ) 
+                             IF ( CR_CNT > 0 )  THEN 					-- Defect#206.n
+                                 Select V_UNITPRICE as OLDPRICE , V_OUNITPRICE as NEWPRICE From Dummy;
+                                 IF V_UNITPRICE != V_OUNITPRICE THEN 
+                                     SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'Invoice','',V_PURCHASEORDERITEM,'V_OBJID').V_OUTPUT INTO V_INV_NO DEFAULT '' FROM DUMMY;
+                                     SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'Invoice','',V_PURCHASEORDERITEM,'V_FISCALYEAR').V_OUTPUT INTO V_INV_YEAR DEFAULT '' FROM DUMMY;
+                                     SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'Invoice','',V_PURCHASEORDERITEM,'V_DATE').V_OUTPUT INTO V_INV_DATE DEFAULT '' FROM DUMMY;
+
+                                     IF V_INV_NO != '' THEN 
+                                         INSERT INTO "#TT_MNET_ACTION" 
+                                         Select 
+                                         V_BOLID as BOLID ,
+                                         V_BOL As BOL,
+                                         V_INVID as INVID,
+                                         V_CONID as CONID,
+                                         V_PO as PO,
+                                         'D' As "ACTION", V_INV_NO "DOCNUM",V_INV_DATE "DATE",V_INV_YEAR "FISCALYEAR" ,'03' "REVERSALREASON" ,'Invoice' "OBJECTTYPE",1,V_LINENUMBER From Dummy ;
+                                     END IF;
+                                  
+
+                                     INSERT INTO "#TT_MNET_ACTION" 
+                                     Select 
+                                     V_BOLID as BOLID ,
+                                     V_BOL As BOL,
+                                     V_INVID as INVID,
+                                     V_CONID as CONID,
+                                     V_PO as PO,
+                                     'C' As "ACTION", null "DOCNUM",null "DATE",null "FISCALYEAR" ,'03' "REVERSALREASON" ,'Invoice' "OBJECTTYPE",2,V_LINENUMBER From Dummy ;
+
+                                     INSERT INTO "#TT_MNET_ITEM_INV"
+                                     Select 
+                                     V_BOLID as BOLID ,
+                                     V_BOL As BOL,
+                                     V_INVID as INVID,
+                                     V_CONID as CONID,
+                                     V_PO as PO,
+                                     'C' As "ACTION",
+                                     null as "IBD_LINE" ,
+                                     T0.lineNumber ,
+                                     T0.supplierPartID,
+                                     IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                                     IFNULL(T1.POITEM_NEW,T0.PurchaseOrderItem) as PurchaseOrderItem,
+                                     '1' as SupplierInvoiceItem ,
+                                     T0.Plant,
+                                     'I0' as TaxCode,
+                                     T0.invoiceCurrencyCode as DocumentCurrency,
+                                     T0.extendedCost as SupplierInvoiceItemAmount,
+                                     T0.partUnitOfMeasurement as PurchaseOrderQuantityUnit,
+                                     T0.quantity as QuantityInPurchaseOrderUnit,
+                                     T0.lineNumber as SupplierInvoiceItemText
+                                     from MNET_WORKFLOW_GET_MNET_DATA as T0 
+                                     left join BTP_PANASONIC_POCROSSREF as T1 on T0.purchaseOrderNumber = T1.PO_OLD and T0.PurchaseOrderItem = T1.POITEM_OLD And IFNULL(T1.ISDELETE,'N') = 'N'
+                                     WHERE T0.HOUSEBOLNUMBER = V_HOLD_BOLNUM AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+                                     And T0.purchaseOrderNumber = V_PO
+                                     AND T0.ID = V_BOLID  And T0.PurchaseOrderItem = V_PURCHASEORDERITEM
+                                     And IFNULL(T0.PASCOriginalPartsNbr,'') = ''
+                                     Order by T0.PurchaseOrderItem; 
+
+                                     --- For Subtitution Item Changes ---
+                                     INSERT INTO "#TT_MNET_ITEM_INV"
+                                     Select 
+                                     V_BOLID as BOLID ,
+                                     V_BOL As BOL,
+                                     V_INVID as INVID,
+                                     V_CONID as CONID,
+                                     V_PO as PO,
+                                     'C' As "ACTION",
+                                     null as "IBD_LINE" ,
+                                     T0.lineNumber ,
+                                     T0.supplierPartID,
+                                     IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                                     IFNULL(T1.POITEM_NEW,T0.PO_ITEMID) as PurchaseOrderItem,
+                                     '1' as SupplierInvoiceItem ,
+                                     T0.Plant,
+                                     'I0' as TaxCode,
+                                     T0.invoiceCurrencyCode as DocumentCurrency,
+                                     T0.extendedCost as SupplierInvoiceItemAmount,
+                                     T0.partUnitOfMeasurement as PurchaseOrderQuantityUnit,
+                                     T0.quantity as QuantityInPurchaseOrderUnit,
+                                     T0.lineNumber as SupplierInvoiceItemText
+                                     from MNET_WORKFLOW_GET_MNET_DATA_SUB as T0 
+                                     left join BTP_PANASONIC_POCROSSREF as T1 on T0.purchaseOrderNumber = T1.PO_OLD and T0.PurchaseOrderItem = T1.POITEM_OLD And IFNULL(T1.ISDELETE,'N') = 'N'
+                                     WHERE T0.HOUSEBOLNUMBER = V_HOLD_BOLNUM AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+                                     And T0.purchaseOrderNumber = V_PO
+                                     AND T0.ID =V_BOLID And T0.PurchaseOrderItem = V_PURCHASEORDERITEM
+                                     Order by T0.PurchaseOrderItem; 
+
+                                 END IF ;
+                             END IF ;    -- Defect 206.n
+
+                     END IF;
+
+                 END IF ;
+ --Defect206.o  IF UPPER(V_INVACTION) = 'A' THEN 
+ -- Process Invoice line for Change Action if it references a PO Line item for 1st time
+				IF ( UPPER(V_INVACTION) = 'A' OR  ( UPPER(V_INVACTION) = 'M' and NewLineForChangedInvoiceFlag = TRUE)) THEN  -- Defect 206part3a.n
+                     INSERT INTO "#TT_MNET_ACTION"
+                     Select 
+                     V_BOLID as BOLID ,
+                     V_BOL As BOL,
+                     V_INVID as INVID,
+                     V_CONID as CONID,
+                     V_PO as PO,
+                     'C' As "ACTION", null "DOCNUM",null "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'InboundDelivery' "OBJECTTYPE",5,V_LINENUMBER From Dummy ;
+                     
+                     INSERT INTO "#TT_MNET_ACTION"
+                     Select 
+                     V_BOLID as BOLID ,
+                     V_BOL As BOL,
+                     V_INVID as INVID,
+                     V_CONID as CONID,
+                     V_PO as PO,
+                     'C' As "ACTION", null "DOCNUM",null "DATE",null "FISCALYEAR" ,'03' "REVERSALREASON" ,'Invoice' "OBJECTTYPE",2,V_LINENUMBER From Dummy ;
+
+                     INSERT INTO "#TT_MNET_ITEM_IBD"
+                     Select 
+                     V_BOLID as BOLID ,
+                     V_BOL As BOL,
+                     V_INVID as INVID,
+                     V_CONID as CONID,
+                     V_PO as PO,
+                     'C' As "ACTION",
+                     null as "IBD_NO",
+                     null as "IBD_LINE" ,
+                     T0.lineNumber ,
+                     T0.supplierPartID,
+                     IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                     IFNULL(T1.POITEM_NEW,T0.PurchaseOrderItem) as PurchaseOrderItem,
+                     T0.quantity,
+                     T0.quantity,
+                     null as "Batch",
+                     T0.Plant,
+                     IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                     IFNULL(T1.POITEM_NEW,T0.PurchaseOrderItem) as PurchaseOrderItem,
+                     T0.ValuationType
+                     from MNET_WORKFLOW_GET_MNET_DATA as T0 
+                     left join BTP_PANASONIC_POCROSSREF as T1 on T0.purchaseOrderNumber = T1.PO_OLD and T0.PurchaseOrderItem = T1.POITEM_OLD And IFNULL(T1.ISDELETE,'N') = 'N'
+                     WHERE T0.HOUSEBOLNUMBER = V_HOLD_BOLNUM AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+                     And T0.purchaseOrderNumber = V_PO
+                     AND T0.ID = V_BOLID  And T0.PurchaseOrderItem = V_PURCHASEORDERITEM
+                     And IFNULL(T0.PASCOriginalPartsNbr,'') = ''
+                     Order by T0.PurchaseOrderItem; 
+
+                     ---- For Subtituion changes --- 
+                     INSERT INTO "#TT_MNET_ITEM_IBD"
+                     Select 
+                     V_BOLID as BOLID ,
+                     V_BOL As BOL,
+                     V_INVID as INVID,
+                     V_CONID as CONID,
+                     V_PO as PO,
+                     'C' As "ACTION",
+                     null as "IBD_NO",
+                     null as "IBD_LINE",
+                     T0.lineNumber ,
+                     T0.supplierPartID,
+                     IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                     IFNULL(T1.POITEM_NEW,T0.PO_ITEMID) as PurchaseOrderItem,
+                     T0.quantity,
+                     T0.quantity,
+                     null as "Batch",
+                     T0.Plant,
+                     IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                     IFNULL(T1.POITEM_NEW,T0.PO_ITEMID) as PurchaseOrderItem,
+                     T0.ValuationType
+                     from MNET_WORKFLOW_GET_MNET_DATA_SUB as T0 
+                     left join BTP_PANASONIC_POCROSSREF as T1 on T0.purchaseOrderNumber = T1.PO_OLD and T0.PurchaseOrderItem = T1.POITEM_OLD And IFNULL(T1.ISDELETE,'N') = 'N'
+                     WHERE T0.HOUSEBOLNUMBER = V_HOLD_BOLNUM AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+                     And T0.purchaseOrderNumber = V_PO
+                     AND T0.ID = V_BOLID  And T0.PurchaseOrderItem = V_PURCHASEORDERITEM
+                     Order by T0.PurchaseOrderItem; 
+
+                     INSERT INTO "#TT_MNET_ITEM_INV"
+                     Select 
+                     V_BOLID as BOLID ,
+                     V_BOL As BOL,
+                     V_INVID as INVID,
+                     V_CONID as CONID,
+                     V_PO as PO,
+                     'C' As "ACTION",
+                     null as "IBD_LINE" ,
+                     T0.lineNumber ,
+                     T0.supplierPartID,
+                     IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                     IFNULL(T1.POITEM_NEW,T0.PurchaseOrderItem) as PurchaseOrderItem,
+                     '1' as SupplierInvoiceItem ,
+                     T0.Plant,
+                     'I0' as TaxCode,
+                     T0.invoiceCurrencyCode as DocumentCurrency,
+                     T0.extendedCost as SupplierInvoiceItemAmount,
+                     T0.partUnitOfMeasurement as PurchaseOrderQuantityUnit,
+                     T0.quantity as QuantityInPurchaseOrderUnit,
+                     T0.lineNumber as SupplierInvoiceItemText
+                     from MNET_WORKFLOW_GET_MNET_DATA as T0 
+                     left join BTP_PANASONIC_POCROSSREF as T1 on T0.purchaseOrderNumber = T1.PO_OLD and T0.PurchaseOrderItem = T1.POITEM_OLD And IFNULL(T1.ISDELETE,'N') = 'N'
+                     WHERE T0.HOUSEBOLNUMBER = V_HOLD_BOLNUM AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+                     And T0.purchaseOrderNumber = V_PO
+                     AND T0.ID = V_BOLID  And T0.PurchaseOrderItem = V_PURCHASEORDERITEM
+                     And IFNULL(T0.PASCOriginalPartsNbr,'') = ''
+                     Order by T0.PurchaseOrderItem; 
+
+                     --- For Subtitution Item Changes --- 
+                     INSERT INTO "#TT_MNET_ITEM_INV"
+                     Select 
+                     V_BOLID as BOLID ,
+                     V_BOL As BOL,
+                     V_INVID as INVID,
+                     V_CONID as CONID,
+                     V_PO as PO,
+                     'C' As "ACTION",
+                     null as "IBD_LINE" ,
+                     T0.lineNumber ,
+                     T0.supplierPartID,
+                     IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                     IFNULL(T1.POITEM_NEW,T0.PO_ITEMID) as PurchaseOrderItem,
+                     '1' as SupplierInvoiceItem ,
+                     T0.Plant,
+                     'I0' as TaxCode,
+                     T0.invoiceCurrencyCode as DocumentCurrency,
+                     T0.extendedCost as SupplierInvoiceItemAmount,
+                     T0.partUnitOfMeasurement as PurchaseOrderQuantityUnit,
+                     T0.quantity as QuantityInPurchaseOrderUnit,
+                     T0.lineNumber as SupplierInvoiceItemText
+                     from MNET_WORKFLOW_GET_MNET_DATA_SUB as T0 
+                     left join BTP_PANASONIC_POCROSSREF as T1 on T0.purchaseOrderNumber = T1.PO_OLD and T0.PurchaseOrderItem = T1.POITEM_OLD And IFNULL(T1.ISDELETE,'N') = 'N'
+                     WHERE T0.HOUSEBOLNUMBER = V_HOLD_BOLNUM AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+                     And T0.purchaseOrderNumber = V_PO
+                     AND T0.ID = V_BOLID  And T0.PurchaseOrderItem = V_PURCHASEORDERITEM
+                     Order by T0.PurchaseOrderItem; 
+
+                 END IF;
+                 IF UPPER(V_INVACTION) = 'D' THEN 
+                             SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'InboundDelivery','',V_PURCHASEORDERITEM,'V_OBJID').V_OUTPUT INTO V_IBD_NO DEFAULT '' FROM DUMMY;
+                             SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'InboundDelivery','',V_PURCHASEORDERITEM,'V_IBD_LINE').V_OUTPUT INTO V_SAP_LINE DEFAULT '' FROM DUMMY;
+                             SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'GoodsReceipt',V_IBD_NO,V_PURCHASEORDERITEM,'V_GRDATE').V_OUTPUT INTO V_GR_DATE DEFAULT '' FROM DUMMY;
+                                                  -- Defect206part3c.sn 
+							 SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'GoodsReceipt','',V_PURCHASEORDERITEM,'V_OBJID').V_OUTPUT INTO V_GR_NO DEFAULT '' FROM DUMMY;
+                             SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'GoodsReceipt','',V_PURCHASEORDERITEM,'V_IBD_LINE').V_OUTPUT INTO V_GR_LINENO DEFAULT '' FROM DUMMY;
+												-- Defect206part3c.en
+	
+                             IF V_IBD_NO != '' THEN 
+                                 INSERT INTO "#TT_MNET_ACTION" 
+                                 Select 
+                                 V_BOLID as BOLID ,
+                                 V_BOL As BOL,
+                                 V_INVID as INVID,
+                                 V_CONID as CONID,
+                                 V_PO as PO,
+                                 'L' As "ACTION", V_IBD_NO "DOCNUM",null "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'InboundDelivery' "OBJECTTYPE",2,V_LINENUMBER From Dummy ;
+                             
+                                 INSERT INTO "#TT_MNET_ITEM_IBD"
+                                 Select 
+                                 V_BOLID as BOLID ,
+                                 V_BOL As BOL,
+                                 V_INVID as INVID,
+                                 V_CONID as CONID,
+                                 V_PO as PO,
+                                 'L' As "ACTION",
+                                 V_IBD_NO As "IBD_NO",
+                                 V_SAP_LINE as "IBD_LINE" ,
+                                 T0.lineNumber ,
+                                 T0.supplierPartID,
+                                 IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                                 IFNULL(T1.POITEM_NEW,T0.PurchaseOrderItem) as PurchaseOrderItem,
+                                 '0' as "QuantityInPurchaseOrderUnit",
+                                 '0' as "ActualDeliveryQuantity",
+                                 null as "Batch",
+                                 T0.Plant,
+                                 IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                                 IFNULL(T1.POITEM_NEW,T0.PurchaseOrderItem) as PurchaseOrderItem,
+                                 T0.ValuationType
+                                 from MNET_WORKFLOW_GET_MNET_DATA as T0 
+                                 left join BTP_PANASONIC_POCROSSREF as T1 on T0.purchaseOrderNumber = T1.PO_OLD and T0.PurchaseOrderItem = T1.POITEM_OLD And IFNULL(T1.ISDELETE,'N') = 'N'
+                                 WHERE T0.HOUSEBOLNUMBER = V_HOLD_BOLNUM AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+                                 And T0.purchaseOrderNumber = V_PO
+                                 AND T0.ID = V_BOLID  And T0.PurchaseOrderItem = V_PURCHASEORDERITEM
+                                 Order by T0.PurchaseOrderItem; 
+                             END IF;
+
+                             IF V_GR_DATE != '' THEN 
+                                 INSERT INTO "#TT_MNET_ACTION" 
+                                 Select 
+                                 V_BOLID as BOLID ,
+                                 V_BOL As BOL,
+                                 V_INVID as INVID,
+                                 V_CONID as CONID,
+                                 V_PO as PO,
+      --Defect206part3c.o        'R' As "ACTION", V_IBD_NO "DOCNUM",V_GR_DATE "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'GoodsReceipt' "OBJECTTYPE",4,V_LINENUMBER From Dummy ;
+	                             'R' As "ACTION", V_GR_NO "DOCNUM",V_GR_DATE "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'GoodsReceipt' "OBJECTTYPE",4,V_GR_LINENO From Dummy ;
+                             END IF;     
+
+                             SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'Invoice','',V_PURCHASEORDERITEM,'V_OBJID').V_OUTPUT INTO V_INV_NO DEFAULT '' FROM DUMMY;
+                             SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'Invoice','',V_PURCHASEORDERITEM,'V_FISCALYEAR').V_OUTPUT INTO V_INV_YEAR DEFAULT '' FROM DUMMY;
+                             SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'Invoice','',V_PURCHASEORDERITEM,'V_DATE').V_OUTPUT INTO V_INV_DATE DEFAULT '' FROM DUMMY;
+
+                             IF V_INV_NO !='' THEN 
+                                 INSERT INTO "#TT_MNET_ACTION" 
+                                 Select 
+                                 V_BOLID as BOLID ,
+                                 V_BOL As BOL,
+                                 V_INVID as INVID,
+                                 V_CONID as CONID,
+                                 V_PO as PO,
+                                 'D' As "ACTION", V_INV_NO "DOCNUM",V_INV_DATE "DATE",V_INV_YEAR "FISCALYEAR" ,'03' "REVERSALREASON" ,'Invoice' "OBJECTTYPE",1,V_LINENUMBER From Dummy ;
+                             END IF;
+
+                 END IF;
+
+             END FOR;
+         END IF;
+
+     END IF;    
+
+
+ END IF;
+
+
+---- Update Existing Data ----
+ELSEIF V_BOLACT ='M' AND V_INVACT ='D' THEN 
+---- Delete Existing Data ----
+ SELECT COUNT(*) into R1
+ FROM MNET_WORKFLOW_GET_MNET_DATA AS T0 
+ WHERE T0.HOUSEBOLNUMBER = V_HOLD_BOLNUM AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+ And T0.purchaseOrderNumber = V_PO
+ AND T0.ID = V_BOLID ;
+ IF R1 > 0 THEN 
+     FOR i IN 0..:R1 -1 DO
+         SELECT T0.supplierPartID ,T0.PurchaseOrderItem , T0.quantity, T0.INVACTION,T0.UNITPRICE,T0.LINENUMBER
+         into V_SUPPLIERPARTID , V_PURCHASEORDERITEM, V_QUANTITY , V_INVACTION,V_UNITPRICE,V_LINENUMBER
+         FROM MNET_WORKFLOW_GET_MNET_DATA AS T0 
+         WHERE T0.HOUSEBOLNUMBER = V_HOLD_BOLNUM AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+         And T0.purchaseOrderNumber = V_PO
+         AND T0.ID = V_BOLID 
+         LIMIT 1 OFFSET :i;
+         
+         
+         IF UPPER(V_INVACTION) = 'D' THEN 
+                     SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'InboundDelivery','',V_PURCHASEORDERITEM,'V_OBJID').V_OUTPUT INTO V_IBD_NO DEFAULT '' FROM DUMMY;
+                     SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'InboundDelivery','',V_PURCHASEORDERITEM,'V_IBD_LINE').V_OUTPUT INTO V_SAP_LINE DEFAULT '' FROM DUMMY;
+                     SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'GoodsReceipt',V_IBD_NO,V_PURCHASEORDERITEM,'V_GRDATE').V_OUTPUT INTO V_GR_DATE DEFAULT '' FROM DUMMY;
+                                                  -- Defect206part3c.sn 
+					 SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'GoodsReceipt','',V_PURCHASEORDERITEM,'V_OBJID').V_OUTPUT INTO V_GR_NO DEFAULT '' FROM DUMMY;
+                     SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'GoodsReceipt','',V_PURCHASEORDERITEM,'V_IBD_LINE').V_OUTPUT INTO V_GR_LINENO DEFAULT '' FROM DUMMY;
+												-- Defect206part3c.en
+                     IF V_IBD_NO != '' THEN 
+                         INSERT INTO "#TT_MNET_ACTION" 
+                         Select 
+                         V_BOLID as BOLID ,
+                         V_BOL As BOL,
+                         V_INVID as INVID,
+                         V_CONID as CONID,
+                         V_PO as PO,
+                         'L' As "ACTION", V_IBD_NO "DOCNUM",null "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'InboundDelivery' "OBJECTTYPE",2,V_LINENUMBER From Dummy ;
+                     
+                        -- This For New Changes --
+                         INSERT INTO "#TT_MNET_ITEM_IBD"
+                                 Select 
+                                 V_BOLID as BOLID ,
+                                 V_BOL As BOL,
+                                 V_INVID as INVID,
+                                 V_CONID as CONID,
+                                 V_PO as PO,
+                                 'L' As "ACTION",
+                                 V_IBD_NO As "IBD_NO",
+                                 V_SAP_LINE as "IBD_LINE",
+                                 T0.lineNumber ,
+                                 T0.supplierPartID,
+                                 IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                                 IFNULL(T1.POITEM_NEW,T0.PurchaseOrderItem) as PurchaseOrderItem,
+                                 '0' as "QuantityInPurchaseOrderUnit",
+                                 '0' as "ActualDeliveryQuantity",
+                                 null as "Batch",
+                                 T0.Plant,
+                                 IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                                 IFNULL(T1.POITEM_NEW,T0.PurchaseOrderItem) as PurchaseOrderItem,
+                                 T0.ValuationType
+                                 from MNET_WORKFLOW_GET_MNET_DATA as T0 
+                                 left join BTP_PANASONIC_POCROSSREF as T1 on T0.purchaseOrderNumber = T1.PO_OLD and T0.PurchaseOrderItem = T1.POITEM_OLD And IFNULL(T1.ISDELETE,'N') = 'N'
+                                 WHERE T0.HOUSEBOLNUMBER = V_HOLD_BOLNUM AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+                                 And T0.purchaseOrderNumber = V_PO
+                                 AND T0.ID = V_BOLID  And T0.PurchaseOrderItem = V_PURCHASEORDERITEM
+                                 Order by T0.PurchaseOrderItem; 
+                     END IF;
+
+                     IF V_GR_DATE != '' THEN 
+                         INSERT INTO "#TT_MNET_ACTION" 
+                         Select 
+                         V_BOLID as BOLID ,
+                         V_BOL As BOL,
+                         V_INVID as INVID,
+                         V_CONID as CONID,
+                         V_PO as PO,
+  --Defect206part3c.o    'R' As "ACTION", V_IBD_NO "DOCNUM",V_GR_DATE "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'GoodsReceipt' "OBJECTTYPE",4,V_LINENUMBER From Dummy ;
+		                  'R' As "ACTION", V_GR_NO "DOCNUM",V_GR_DATE "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'GoodsReceipt' "OBJECTTYPE",4,V_GR_LINENO From Dummy ;
+                     END IF;    
+
+                     
+                 
+                     
+
+                     
+
+                     SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'Invoice','',V_PURCHASEORDERITEM,'V_OBJID').V_OUTPUT INTO V_INV_NO DEFAULT '' FROM DUMMY;
+                     SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'Invoice','',V_PURCHASEORDERITEM,'V_FISCALYEAR').V_OUTPUT INTO V_INV_YEAR DEFAULT '' FROM DUMMY;
+                     SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'Invoice','',V_PURCHASEORDERITEM,'V_DATE').V_OUTPUT INTO V_INV_DATE DEFAULT '' FROM DUMMY;
+
+                     IF V_INV_NO != '' THEN 
+                         INSERT INTO "#TT_MNET_ACTION" 
+                         Select 
+                         V_BOLID as BOLID ,
+                         V_BOL As BOL,
+                         V_INVID as INVID,
+                         V_CONID as CONID,
+                         V_PO as PO,
+                         'D' As "ACTION", V_INV_NO "DOCNUM",V_INV_DATE "DATE",V_INV_YEAR "FISCALYEAR" ,'03' "REVERSALREASON" ,'Invoice' "OBJECTTYPE",1,V_LINENUMBER From Dummy ;
+                     
+                     END IF;
+
+         END IF;
+         
+
+     END FOR;
+ END IF;
+
+---- Delete Existing Data ----
+ELSEIF V_BOLACT ='D' AND V_INVACT ='D' THEN 
+---- Delete All Data ----
+ SELECT COUNT(*) into R1
+ FROM MNET_WORKFLOW_GET_MNET_DATA AS T0 
+ WHERE T0.HOUSEBOLNUMBER = V_HOLD_BOLNUM AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+ And T0.purchaseOrderNumber = V_PO
+ AND T0.ID = V_BOLID ;
+ IF R1 > 0 THEN 
+     FOR i IN 0..:R1 -1 DO
+         SELECT T0.supplierPartID ,T0.PurchaseOrderItem , T0.quantity, T0.INVACTION,T0.UNITPRICE,T0.LINENUMBER
+         into V_SUPPLIERPARTID , V_PURCHASEORDERITEM, V_QUANTITY , V_INVACTION,V_UNITPRICE,V_LINENUMBER
+         FROM MNET_WORKFLOW_GET_MNET_DATA AS T0 
+         WHERE T0.HOUSEBOLNUMBER = V_HOLD_BOLNUM AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+         And T0.purchaseOrderNumber = V_PO
+         AND T0.ID = V_BOLID 
+         LIMIT 1 OFFSET :i;
+         
+         
+         IF UPPER(V_INVACTION) = 'D' THEN 
+                     SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'InboundDelivery','',V_PURCHASEORDERITEM,'V_OBJID').V_OUTPUT INTO V_IBD_NO DEFAULT '' FROM DUMMY;
+                     SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'InboundDelivery','',V_PURCHASEORDERITEM,'V_IBD_LINE').V_OUTPUT INTO V_SAP_LINE DEFAULT '' FROM DUMMY;
+                     SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'GoodsReceipt',V_IBD_NO,V_PURCHASEORDERITEM,'V_GRDATE').V_OUTPUT INTO V_GR_DATE DEFAULT '' FROM DUMMY;
+                                                  -- Defect206part3c.sn 
+					 SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'GoodsReceipt','',V_PURCHASEORDERITEM,'V_OBJID').V_OUTPUT INTO V_GR_NO DEFAULT '' FROM DUMMY;
+                     SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'GoodsReceipt','',V_PURCHASEORDERITEM,'V_IBD_LINE').V_OUTPUT INTO V_GR_LINENO DEFAULT '' FROM DUMMY;
+												-- Defect206part3c.en
+                     IF V_IBD_NO !='' THEN 
+                         INSERT INTO "#TT_MNET_ACTION" 
+                         Select 
+                         V_BOLID as BOLID ,
+                         V_BOL As BOL,
+                         V_INVID as INVID,
+                         V_CONID as CONID,
+                         V_PO as PO,
+                         'L' As "ACTION", V_IBD_NO "DOCNUM",null "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'InboundDelivery' "OBJECTTYPE",2,V_LINENUMBER From Dummy ;
+
+                          -- This For New Changes --
+                             INSERT INTO "#TT_MNET_ITEM_IBD"
+                             Select 
+                             V_BOLID as BOLID ,
+                             V_BOL As BOL,
+                             V_INVID as INVID,
+                             V_CONID as CONID,
+                             V_PO as PO,
+                             'L' As "ACTION",
+                             V_IBD_NO As "IBD_NO",
+                             V_SAP_LINE as "IBD_LINE" ,
+                             T0.lineNumber ,
+                             T0.supplierPartID,
+                             IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                             IFNULL(T1.POITEM_NEW,T0.PurchaseOrderItem) as PurchaseOrderItem,
+                             '0' as "QuantityInPurchaseOrderUnit",
+                             '0' as "ActualDeliveryQuantity",
+                             null as "Batch",
+                             T0.Plant,
+                             IFNULL(T1.PO_NEW,T0.purchaseOrderNumber) as purchaseOrderNumber,
+                             IFNULL(T1.POITEM_NEW,T0.PurchaseOrderItem) as PurchaseOrderItem,
+                             T0.ValuationType
+                             from MNET_WORKFLOW_GET_MNET_DATA as T0 
+                             left join BTP_PANASONIC_POCROSSREF as T1 on T0.purchaseOrderNumber = T1.PO_OLD and T0.PurchaseOrderItem = T1.POITEM_OLD And IFNULL(T1.ISDELETE,'N') = 'N'
+                             WHERE T0.HOUSEBOLNUMBER = V_HOLD_BOLNUM AND T0.INVOICENUMBER = V_INVID AND T0.CONTAINERID = V_CONID
+                             And T0.purchaseOrderNumber = V_PO
+                             AND T0.ID = V_BOLID  And T0.PurchaseOrderItem = V_PURCHASEORDERITEM
+                             Order by T0.PurchaseOrderItem; 
+
+                     END IF;
+
+                     
+                 
+                     IF V_GR_DATE != '' THEN 
+                         INSERT INTO "#TT_MNET_ACTION" 
+                         Select 
+                         V_BOLID as BOLID ,
+                         V_BOL As BOL,
+                         V_INVID as INVID,
+                         V_CONID as CONID,
+                         V_PO as PO,
+  --Defect206part3c.o    'R' As "ACTION", V_IBD_NO "DOCNUM",V_GR_DATE "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'GoodsReceipt' "OBJECTTYPE",4,V_LINENUMBER From Dummy ;
+						 'R' As "ACTION", V_GR_NO "DOCNUM",V_GR_DATE "DATE",null "FISCALYEAR" ,null "REVERSALREASON" ,'GoodsReceipt' "OBJECTTYPE",4,V_GR_LINENO From Dummy ;
+
+                     END IF;
+
+                     
+
+                     SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'Invoice','',V_PURCHASEORDERITEM,'V_OBJID').V_OUTPUT INTO V_INV_NO DEFAULT '' FROM DUMMY;
+                     SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'Invoice','',V_PURCHASEORDERITEM,'V_FISCALYEAR').V_OUTPUT INTO V_INV_YEAR DEFAULT '' FROM DUMMY;
+                     SELECT "GET_MNET_DETAILS"(V_HOLD_BOLNUM,V_INVID,V_CONID,V_PO,'Invoice','',V_PURCHASEORDERITEM,'V_DATE').V_OUTPUT INTO V_INV_DATE DEFAULT '' FROM DUMMY;
+
+                     IF V_INV_NO != '' THEN 
+                         INSERT INTO "#TT_MNET_ACTION" 
+                         Select 
+                         V_BOLID as BOLID ,
+                         V_BOL As BOL,
+                         V_INVID as INVID,
+                         V_CONID as CONID,
+                         V_PO as PO,
+                         'D' As "ACTION", V_INV_NO "DOCNUM",V_INV_DATE "DATE",V_INV_YEAR "FISCALYEAR" ,'03' "REVERSALREASON" ,'Invoice' "OBJECTTYPE",1,V_LINENUMBER From Dummy ;
+                     END IF;
+
+                     
+
+
+
+         END IF;
+         
+
+
+     END FOR;
+ END IF;
+
+---- Delete All Data ----
+END IF;
+
+INSERT INTO BTP_PANASONIC_MNET_ACTION
+ Select Distinct 
+ "BOLID" ,
+ "BOL" ,
+ "INVID" ,
+ "CONID",
+ "PO" ,
+ "ACTION"  ,
+ "DOCNUM" ,
+ "DATE"  ,
+ "FISCALYEAR" ,
+ "REVERSALREASON" ,
+ "OBJECTTYPE" ,
+ "RID",
+ "LINENUMBER" From "#TT_MNET_ACTION"    ;
+
+ DROP TABLE "#TT_MNET_ACTION";
+
+ INSERT INTO BTP_PANASONIC_MNET_DeliveryDocumentItem
+   Select Distinct 
+   "BOLID" ,
+   "BOL",
+   "INVID" ,
+   "CONID" ,
+   "PO" ,
+   "Action" ,
+   "IBD_NO",
+   "IBD_LINE" ,
+   "lineNumber" ,
+   "Material" ,
+   "PurchaseOrder" ,
+   "PurchaseOrderItem" ,
+   "QuantityInPurchaseOrderUnit" ,
+   "ActualDeliveryQuantity" ,
+   "Batch" ,
+   "Plant" ,
+   "ReferenceSDDocument" ,
+   "ReferenceSDDocumentItem"  ,
+   "InventoryValuationType" 
+   From "#TT_MNET_ITEM_IBD";
+   DROP TABLE "#TT_MNET_ITEM_IBD";
+
+   INSERT INTO BTP_PANASONIC_MNET_SuplrInvcItemPurOrdRef
+   Select 
+   "BOLID"  ,
+     "BOL" ,
+     "INVID" ,
+     "CONID" ,
+     "PO" ,
+     "Action"  ,
+     "IBD_LINE"  ,
+     "lineNumber" ,
+     "Material" ,
+     "PurchaseOrder" ,
+     "PurchaseOrderItem" ,
+     "SupplierInvoiceItem" ,
+     "Plant"  ,
+     "TaxCode" ,
+     "DocumentCurrency"  ,
+     "SupplierInvoiceItemAmount"  ,
+     "PurchaseOrderQuantityUnit" ,
+     "QuantityInPurchaseOrderUnit" ,
+     "SupplierInvoiceItemText"  
+     From "#TT_MNET_ITEM_INV";
+     DROP TABLE "#TT_MNET_ITEM_INV";
+
+	-- INC0219136.sn Update Invoice Line with Error Status and create entry in MonitoringStatus so that the data is visible on the dashboard.
+	IF NOT EXISTS ( SELECT TOP 1 A.BOLID FROM BTP_PANASONIC_MNET_ACTION AS A WHERE A.BOLID = V_BOLID and A.BOL = V_BOL ) THEN
+		    UPDATE BTP_PANASONIC_INVOICELINE AS B 
+		    SET B.STATUS = 'E' 
+		    WHERE B.INVOICENUMBER_HOUSEBOLNUMBER_ID = V_BOLID 
+		      AND B.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = V_BOL
+		      AND B.PURCHASEORDERNUMBER = V_PO;
+		    
+		    SELECT  "MNetStatusMonitoring_ID".NEXTVAL INTO V_NEXTID  FROM DUMMY;
+
+			INSERT INTO "BTP_PANASONIC_MNETSTATUSMONITORING"
+				(CREATEDAT,ID,BOLID,HOUSEBOLNUMBER, DATE,OBJECTTYPE,STATUS,MESSAGE, IMPORTSHIPMENTNUMBER)
+			VALUES
+				(NOW(),V_NEXTID,V_BOLID,V_BOL,NOW(),'VALIDATION','E','Error Generating MNET_ACTIONS for Processing InvoiceLines', V_importShipmentNumber);
+			
+			INSERT INTO "BTP_PANASONIC_MNETSTATUSMONITORINGITEM"
+			(ID_ID,LINEID,LINENUMBER,MATERIAL,PURCHASEORDER,PURCHASEORDERITEM)
+			Select 
+				V_NEXTID AS ID_ID,
+				ROW_NUMBER() OVER (ORDER BY T0.LINENUMBER ASC) AS LINEID,
+        		T0.LINENUMBER,T0.SUPPLIERPARTID,T0.PURCHASEORDERNUMBER,T0.ORDERITEMNBR from BTP_PANASONIC_INVOICELINE As T0 
+        			Where T0.INVOICENUMBER_HOUSEBOLNUMBER_ID  = V_BOLID And T0.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = V_BOL
+        			And T0.PURCHASEORDERNUMBER = V_PO ;	
+    END IF;     	-- INC0219136.en Update Invoice Line with Error Status and create entry in MonitoringStatus so that the data is visible on the dashboard.
+
+ -- End of Mass Selective Replacement of V_BOL with V_HOLD_BOLNUM in the code above for Defect 206part3 . 
+ -- The Start point of mass replacement is indicated by "Defect 206part3.ReplaceVBOLwithV_HOLD_NUM.start"
+END

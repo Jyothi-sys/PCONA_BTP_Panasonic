@@ -1,0 +1,43 @@
+FUNCTION "GET_MNET_SUPPLIER_PARTID"(V_PARTID NVARCHAR(50) )
+    RETURNS S_PARTID varchar(50)
+    LANGUAGE SQLSCRIPT
+    SQL SECURITY INVOKER AS
+BEGIN
+-- To get the supplier part id from the partid 
+-- example: 1AD10228AAB~1AD10228AAB~00029052 || supplierid~buyerid~globalcode 
+-- Defect 70 Re-Wrote function to get Supplier Id from 1st Segment. Old Code was picking that code from 2nd Segment. 
+
+    Declare v_delim_posn integer;							-- Defect 70.n
+
+/*  Select										-- Defect 70.so
+    cast(
+	 case when length(
+                    RTRIM(
+                        SUBSTR(
+                            V_PARTID, (INSTR(V_PARTID, '~', 1) +1), (
+                                LOCATE(V_PARTID, '~', -1)-INSTR(V_PARTID, '~', 1) -1
+                                )
+                            )
+                        )) < 3 then 
+                         RTRIM(SUBSTR(V_PARTID, 1, (INSTR(V_PARTID, '~', 1) - 1)))
+                    	else 
+                    	RTRIM(
+                        SUBSTR(
+                            V_PARTID, (INSTR(V_PARTID, '~', 1) +1), (
+                                LOCATE(V_PARTID, '~', -1)-INSTR(V_PARTID, '~', 1) -1
+                                )
+                            )
+                        )
+                        end*/								-- Defect 70.eo
+	  
+		select locate(V_PARTID,'~') into v_delim_posn from dummy;		-- Defect 70.sn
+	  		
+		if v_delim_posn > 1 then
+	        Select CAST((select SUBSTRING_REGEXPR('[^~]+' IN V_PARTID FROM 1 OCCURRENCE 1) from dummy  )                         
+                        as     NVARCHAR(50)
+                    )  into S_PARTID From Dummy ;
+		else
+			S_PARTID = '';
+		end if;									-- Defect 70.en
+
+END

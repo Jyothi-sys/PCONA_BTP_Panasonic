@@ -1,0 +1,79 @@
+PROCEDURE "USP_UPDATE_PART_SUBSITUTION_PO_ITEM"(IN V_PO NVARCHAR(50), OUT IS_UPDATES BOOLEAN) 
+  LANGUAGE SQLSCRIPT 
+  SQL SECURITY INVOKER AS 
+BEGIN
+  DECLARE O_Invoice NVARCHAR(16);
+  DECLARE O_InvoiceLine NVARCHAR(30);
+  DECLARE O_BOLID Integer;
+  DECLARE O_BOL NVARCHAR(18);
+  DECLARE O_PO_Item NVARCHAR(5);
+  DECLARE EXIT HANDLER FOR SQLEXCEPTION 
+  BEGIN IS_UPDATES = FALSE;
+END;
+BEGIN
+DECLARE CURSOR C_POSTATUSMONITORING FOR
+SELECT CAST(
+    (
+      SELECT SUBSTRING_REGEXPR(
+          '[^:,]+' IN T2.message
+          FROM 1 OCCURRENCE 3
+        )
+      FROM dummy
+    ) AS NVARCHAR(16)
+  ) AS Invoice,
+  --buyerPartID
+  CAST(
+    (
+      SELECT SUBSTRING_REGEXPR(
+          '[^:,]+' IN T2.message
+          FROM 1 OCCURRENCE 5
+        )
+      FROM dummy
+    ) AS NVARCHAR(30)
+  ) AS InvoiceLine,
+  CAST(
+    (
+      SELECT SUBSTRING_REGEXPR(
+          '[^:,]+' IN T2.message
+          FROM 1 OCCURRENCE 7
+        )
+      FROM dummy
+    ) AS Integer
+  ) AS BOLID,
+  CAST(
+    (
+      SELECT SUBSTRING_REGEXPR(
+          '[^:,]+' IN T2.message
+          FROM 1 OCCURRENCE 9
+        )
+      FROM dummy
+    ) AS NVARCHAR(18)
+  ) AS BOL,
+  CAST(
+    (
+      SELECT SUBSTRING_REGEXPR(
+          '[^:,]+' IN T2.message
+          FROM 1 OCCURRENCE 11
+        )
+      FROM dummy
+    ) AS NVARCHAR(5)
+  ) AS PO_Item
+FROM BTP_PANASONIC_POSTATUSMONITORING AS T2
+WHERE T2.OBJECTTYPE = 'Inbound'
+  AND TO_NVARCHAR(T2.CREATEDAT, 'YYYYMMDD') = TO_NVARCHAR(CURRENT_DATE, 'YYYYMMDD')
+  AND T2.Status = 'Substituted'
+  AND T2.PO = :V_PO;
+FOR cur_rows AS C_POSTATUSMONITORING DO O_Invoice = cur_rows.Invoice;
+O_PO_Item = cur_rows.PO_Item;
+UPDATE BTP_PANASONIC_INVOICELINE
+SET ORDERITEMNBR = trim(:cur_rows.PO_Item)
+WHERE INVOICENUMBER_INVOICENUMBER = trim(:cur_rows.Invoice)
+  AND INVOICENUMBER_HOUSEBOLNUMBER_ID = :cur_rows.BOLID
+  AND INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = trim(:cur_rows.BOL)
+  AND LINENUMBER = trim(:cur_rows.InvoiceLine)
+  AND PURCHASEORDERNUMBER = :V_PO;
+COMMIT;
+END FOR;
+END;
+IS_UPDATES = TRUE;
+END;

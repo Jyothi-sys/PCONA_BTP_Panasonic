@@ -1,0 +1,84 @@
+PROCEDURE "PO_CREATE"(
+OUT OUT_DATA TABLE(
+    PROC_DATE DATE,
+    PROC_TIME TIME,
+    COUNTER BIGINT,
+    MATNR NVARCHAR(18),
+    SALESORD NVARCHAR(22),
+    SALESORDLINE NVARCHAR(10),
+    DEST NVARCHAR(15),
+    SOURCE NVARCHAR(15),
+    SOURCING NVARCHAR(40),
+    SHIPDATE DATE,
+    SARDATE DATE,
+    QUANTITY NVARCHAR(13),
+    TMODE NVARCHAR(15),
+    SEGMENT NVARCHAR(15),
+    DEMAND NVARCHAR(30),
+    PATTERN NVARCHAR(10),
+    ITEMTYPE NVARCHAR(15),
+    JDASOURCE NVARCHAR(10),
+    JDASUPPLY NVARCHAR(1),
+    UDEST NVARCHAR(15),
+    STATUS NVARCHAR(15),
+    SHIP_PLAN_RECEIVED_FROM DATE,
+    SHIP_PLAN_RECEIVED_TO DATE,
+    SHIP_PLAN_SOURCE VARCHAR(50),
+    SHIP_FROM NVARCHAR(50),
+    SHIP_TO NVARCHAR(50),
+    SUPPLYTYPE NVARCHAR(1),
+    PURCHASING_ORG NVARCHAR(4),
+    PURCHASING_GROUP NVARCHAR(4),
+    PLANT NVARCHAR(4),
+    VENDOR_I_E_INDICATOR NVARCHAR(2),
+    VENDOR NVARCHAR(1000),
+    SUB_CON_VENDOR NVARCHAR(20),
+    EMAIL NVARCHAR(1000),
+    DESTINATION NVARCHAR(50),
+    DEFAULT_DEST NVARCHAR(50)
+)) 
+  LANGUAGE SQLSCRIPT 
+  SQL SECURITY INVOKER 
+  --DEFAULT SCHEMA <default_schema_name>
+  READS SQL DATA AS 
+BEGIN 
+  /*************************************
+  Write your procedure logic
+  *************************************/
+  
+  OUT_DATA =  SELECT DISTINCT 
+	ship.*,
+	ADD_DAYS( TO_DATE( CURRENT_DATE, 'YYYY-MM-DD' ), (crit.ship_plan_received_from * -1 )) AS ship_plan_received_from,
+	ADD_DAYS( TO_DATE( CURRENT_DATE, 'YYYY-MM-DD' ),  crit.ship_plan_received_to) AS ship_plan_received_to,
+	crit.ship_plan_source,
+	ADD_DAYS( TO_DATE( CURRENT_DATE, 'YYYY-MM-DD' ), (crit.shipdate_from * -1 )) AS ship_from,
+	ADD_DAYS( TO_DATE( CURRENT_DATE, 'YYYY-MM-DD' ),  crit.shipdate_to) AS ship_to,
+	crit.supplyType,
+	crit.purchasing_org,
+	crit.purchasing_group,
+	crit.Plant,
+	crit.vendor_i_e_indicator,
+	crit.vendor,
+	crit.sub_con_vendor,
+	crit.email,
+	zipcode.destination,
+	zipcode.default_dest
+FROM 
+	BTP_PANASONIC_ZJDA_SHIPPLAN_SEL_CRITERION AS crit
+	INNER JOIN
+	"BTP_PANASONIC_ZJDA_SHIP_PLAN" AS ship
+	ON  ship.shipdate >= ADD_DAYS( TO_DATE( CURRENT_DATE, 'YYYY-MM-DD' ), crit.shipdate_from * -1 ) 
+		and ship.shipdate <= ADD_DAYS( TO_DATE( CURRENT_DATE, 'YYYY-MM-DD' ),  crit.shipdate_to)
+		and ship.proc_date >= ADD_DAYS( TO_DATE( CURRENT_DATE, 'YYYY-MM-DD' ), (crit.ship_plan_received_from * -1 ))
+		and ship.proc_date <= ADD_DAYS( TO_DATE( CURRENT_DATE, 'YYYY-MM-DD' ),  crit.ship_plan_received_to)
+		AND (crit.itemtype IS NULL OR crit.itemtype = ship.itemtype OR crit.itemtype ='' )
+		AND (crit.ship_plan_source IS NULL OR crit.ship_plan_source = ship.jdasource OR crit.ship_plan_source ='' )
+		AND (crit.salesorder IS NULL OR crit.salesorder = ship.salesord OR crit.salesorder = '')
+		AND (crit.salesorderline is NULL OR crit.salesorderline = ship.salesordline OR crit.salesorderline = '')
+	--	AND (crit.material is NULL OR crit.material = ship.matnr OR crit.material = '')
+		AND (crit.material is NULL OR crit.material = '' OR ( crit.material NOT LIKE '%' || trim(ship.matnr) || '%' ))
+	LEFT OUTER JOIN
+	"BTP_PANASONIC_ZIPCODE_DESTINATION" AS zipcode
+	ON crit.plant = zipcode.plant
+		AND zipcode.default_dest = 'Y';
+END

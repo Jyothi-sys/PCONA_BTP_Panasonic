@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+    <edmx:Reference Uri="https://sap.github.io/odata-vocabularies/vocabularies/Common.xml">
+        <edmx:Include Alias="Common" Namespace="com.sap.vocabularies.Common.v1"/>
+    </edmx:Reference>
+    <edmx:Reference Uri="https://oasis-tcs.github.io/odata-vocabularies/vocabularies/Org.OData.Core.V1.xml">
+        <edmx:Include Alias="Core" Namespace="Org.OData.Core.V1"/>
+    </edmx:Reference>
+    <edmx:DataServices>
+        <Schema Namespace="componentspo_Srv" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+            <EntityContainer Name="EntityContainer">
+                <EntitySet Name="zjda_ship_plan" EntityType="componentspo_Srv.zjda_ship_plan"/>
+                <EntitySet Name="zjda_shipplan_sel_criterion" EntityType="componentspo_Srv.zjda_shipplan_sel_criterion"/>
+                <FunctionImport Name="po_create" Function="componentspo_Srv.po_create"/>
+                <FunctionImport Name="sel_create" Function="componentspo_Srv.sel_create"/>
+            </EntityContainer>
+            <EntityType Name="zjda_ship_plan">
+                <Key>
+                    <PropertyRef Name="counter"/>
+                    <PropertyRef Name="matnr"/>
+                    <PropertyRef Name="salesord"/>
+                    <PropertyRef Name="salesordline"/>
+                </Key>
+                <Property Name="proc_date" Type="Edm.Date"/>
+                <Property Name="proc_time" Type="Edm.TimeOfDay"/>
+                <Property Name="counter" Type="Edm.Int64" Nullable="false"/>
+                <Property Name="matnr" Type="Edm.String" MaxLength="18" Nullable="false"/>
+                <Property Name="salesord" Type="Edm.String" MaxLength="22" Nullable="false"/>
+                <Property Name="salesordline" Type="Edm.String" MaxLength="10" Nullable="false"/>
+                <Property Name="dest" Type="Edm.String" MaxLength="15"/>
+                <Property Name="source" Type="Edm.String" MaxLength="15"/>
+                <Property Name="sourcing" Type="Edm.String" MaxLength="40"/>
+                <Property Name="shipdate" Type="Edm.Date"/>
+                <Property Name="sardate" Type="Edm.Date"/>
+                <Property Name="quantity" Type="Edm.String" MaxLength="13"/>
+                <Property Name="tmode" Type="Edm.String" MaxLength="15"/>
+                <Property Name="segment" Type="Edm.String" MaxLength="15"/>
+                <Property Name="demand" Type="Edm.String" MaxLength="30"/>
+                <Property Name="pattern" Type="Edm.String" MaxLength="10"/>
+                <Property Name="itemtype" Type="Edm.String" MaxLength="15"/>
+                <Property Name="jdasource" Type="Edm.String" MaxLength="10"/>
+                <Property Name="jdasupply" Type="Edm.String" MaxLength="1"/>
+                <Property Name="udest" Type="Edm.String" MaxLength="15"/>
+            </EntityType>
+            <EntityType Name="zjda_shipplan_sel_criterion">
+                <Key>
+                    <PropertyRef Name="ship_plan_received_from"/>
+                    <PropertyRef Name="ship_plan_received_to"/>
+                    <PropertyRef Name="ship_plan_source"/>
+                    <PropertyRef Name="purchasing_org"/>
+                    <PropertyRef Name="purchasing_group"/>
+                    <PropertyRef Name="plant"/>
+                    <PropertyRef Name="vendor_i_e_indicator"/>
+                </Key>
+                <Property Name="ship_plan_received_from" Type="Edm.Date" Nullable="false"/>
+                <Property Name="ship_plan_received_to" Type="Edm.Date" Nullable="false"/>
+                <Property Name="itemtype" Type="Edm.String" MaxLength="15"/>
+                <Property Name="ship_plan_source" Type="Edm.String" MaxLength="10" Nullable="false"/>
+                <Property Name="shipdate_from" Type="Edm.Date"/>
+                <Property Name="shipdate_to" Type="Edm.Date"/>
+                <Property Name="material" Type="Edm.String" MaxLength="20"/>
+                <Property Name="salesorder" Type="Edm.String" MaxLength="22"/>
+                <Property Name="salesorderline" Type="Edm.String" MaxLength="10"/>
+                <Property Name="purchasing_org" Type="Edm.String" MaxLength="4" Nullable="false"/>
+                <Property Name="purchasing_group" Type="Edm.String" MaxLength="4" Nullable="false"/>
+                <Property Name="plant" Type="Edm.String" MaxLength="4" Nullable="false"/>
+                <Property Name="vendor_i_e_indicator" Type="Edm.String" MaxLength="2" Nullable="false"/>
+                <Property Name="vendor" Type="Edm.String" MaxLength="20"/>
+                <Property Name="email" Type="Edm.String" MaxLength="100"/>
+            </EntityType>
+            <Function Name="po_create" IsBound="false" IsComposable="false">
+                <ReturnType Type="Edm.String"/>
+            </Function>
+            <Function Name="sel_create" IsBound="false" IsComposable="false">
+                <Parameter Name="ship_plan_received_from" Type="Edm.String"/>
+                <Parameter Name="ship_plan_received_to" Type="Edm.String"/>
+                <Parameter Name="itemtype" Type="Edm.String"/>
+                <Parameter Name="ship_plan_source" Type="Edm.String"/>
+                <Parameter Name="shipdate_from" Type="Edm.String"/>
+                <Parameter Name="shipdate_to" Type="Edm.String"/>
+                <Parameter Name="material" Type="Edm.String"/>
+                <Parameter Name="salesorder" Type="Edm.String"/>
+                <Parameter Name="salesorderline" Type="Edm.String"/>
+                <Parameter Name="purchasing_org" Type="Edm.String"/>
+                <Parameter Name="purchasing_group" Type="Edm.String"/>
+                <Parameter Name="plant" Type="Edm.String"/>
+                <Parameter Name="vendor_i_e_indicator" Type="Edm.String"/>
+                <Parameter Name="vendor" Type="Edm.String"/>
+                <Parameter Name="email" Type="Edm.String"/>
+                <ReturnType Type="Edm.String"/>
+            </Function>
+            <Annotations Target="componentspo_Srv.zjda_ship_plan/proc_date">
+                <Annotation Term="Core.Computed" Bool="true"/>
+            </Annotations>
+            <Annotations Target="componentspo_Srv.zjda_ship_plan/proc_time">
+                <Annotation Term="Core.Computed" Bool="true"/>
+            </Annotations>
+        </Schema>
+    </edmx:DataServices>
+</edmx:Edmx>

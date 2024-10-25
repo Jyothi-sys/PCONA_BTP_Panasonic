@@ -1,0 +1,49 @@
+-- Bhushan added for def 50  pt 1 on 19/03/24
+FUNCTION GET_MNET_STATUS1( IN BOL NVARCHAR(18), IN InvNo NVARCHAR(16) )
+        RETURNS MStat NVARCHAR(1) AS
+    BEGIN
+        DECLARE LatestMStat NVARCHAR(1);
+        DECLARE PREVSTATUS NVARCHAR(1);
+        DECLARE ISERROR BOOLEAN DEFAULT FALSE;
+        DECLARE CURSOR STATUS_CURSOR FOR
+            SELECT A.INVOICENUMBER_HOUSEBOLNUMBER_ID,A.STATUS, A.INVOICENUMBER_INVOICENUMBER, A.LineNumber, MaxInvoiceline.FolderNo
+            FROM BTP_PANASONIC_invoiceLine as A 
+            inner join (select max(b.INVOICENUMBER_HOUSEBOLNUMBER_ID) as MAXID , b.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER As BOL, b.INVOICENUMBER_INVOICENUMBER as INV_NUM,b.LineNumber as LineNum, C.ImportShipmentNumber as FolderNo
+            from BTP_PANASONIC_invoiceLine as b,BTP_PANASONIC_BOLHEADER as C
+            where b.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = BOL 
+            and b.INVOICENUMBER_INVOICENUMBER = InvNo 
+            and b.INVOICENUMBER_HOUSEBOLNUMBER_ID = C.ID
+            group by b.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER, b.INVOICENUMBER_INVOICENUMBER,b.LineNumber,c.importshipmentnumber ) AS MaxInvoiceLine 
+            ON A.INVOICENUMBER_HOUSEBOLNUMBER_ID = MaxInvoiceLine.MAXID 
+            and A.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = MaxInvoiceLine.BOL
+            and A.INVOICENUMBER_INVOICENUMBER = MaxInvoiceLine.INV_NUM
+            and A.LINENUMBER = MaxInvoiceLine.LineNum
+            WHERE A.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = BOL
+            AND INVOICENUMBER_INVOICENUMBER = InvNo
+            order by A.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER, A.INVOICENUMBER_INVOICENUMBER,A.LineNumber, A.Status;
+    
+        FOR CURSORROW AS STATUS_CURSOR DO
+            IF :CURSORROW.STATUS <> 'I' THEN
+                IF PREVSTATUS IS NULL THEN
+                    IF  :CURSORROW.STATUS = 'E'  THEN
+                    ISERROR = TRUE;
+                    PREVSTATUS = :CURSORROW.STATUS;
+                    ELSEIF  :CURSORROW.STATUS = 'H' AND ISERROR <> TRUE THEN
+                    ISERROR = TRUE;
+                    PREVSTATUS = :CURSORROW.STATUS;
+                    ELSE
+                    PREVSTATUS = :CURSORROW.STATUS;
+                    END IF;
+                ELSEIF  :CURSORROW.STATUS = 'E'  THEN
+                    ISERROR = TRUE;
+                    PREVSTATUS = :CURSORROW.STATUS;
+                ELSEIF  :CURSORROW.STATUS = 'H' AND ISERROR <> TRUE THEN
+                    ISERROR = TRUE;
+                    PREVSTATUS = :CURSORROW.STATUS;
+                ELSEIF PREVSTATUS <> :CURSORROW.STATUS AND ISERROR <> TRUE THEN
+                 PREVSTATUS =  :CURSORROW.STATUS;
+               END IF;
+            END IF;
+        END FOR;
+        MStat = PREVSTATUS;
+    END

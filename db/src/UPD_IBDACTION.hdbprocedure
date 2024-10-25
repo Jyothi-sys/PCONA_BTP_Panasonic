@@ -1,0 +1,177 @@
+PROCEDURE UPD_IBDACTION( IN v_containerid VARCHAR(30), IN v_documentno VARCHAR(10), IN v_bol VARCHAR(20), IN v_invoiceno VARCHAR(15), IN v_BTP_IBDStatus VARCHAR(1), IN v_BTP_IBDAction VARCHAR(1), IN I_BOLID INTEGER ) AS
+-- RETURNS STATUS VARCHAR(1)
+-- First update all InvoicelineStatus = 'P' and then do update to "C" for only DropShip Items.
+-- This Procedure is used only for IBDAction = U => BOLChange and ETAChange
+-- INC0219526 Sep 4th. Updated Procedure to include I_BOLID and modified the select and update statements to consider a situation where "U" action is taking place. Previously the IBD Number and associated attributes were replicated from previous records causing errors in Gr Processing.The code in Replicate has been commented out for this,
+-- This procedure is adapted to update the IBDNumber when procedure is called from Method for inserting entries in MNETStatusMonitoring. 
+-- INC0219526 Sep 5th The Subselect in the query is not retrieving the correct record leading to erroneous update of IBDnumbers
+BEGIN
+	DECLARE v_flag BOOLEAN;
+	DECLARE V_BTP_GRSTATUS VARCHAR(2);
+	DECLARE V_BTP_GRACTION NVARCHAR(10);
+	DECLARE CURSOR_EXECUTED BOOLEAN;
+
+	
+-- Update the IBD Numbers and action for current BOLID. when there is only BOL or ETA change with no change in container
+
+	IF v_BTP_IBDAction = 'U' THEN
+		BEGIN
+			DECLARE CURSOR C_InvoiceLineDatSet FOR
+				SELECT 
+						A.BTP_IBDNUMBER,
+						A.SAP_LINEID_IBD,
+						A.INVOICENUMBER_HOUSEBOLNUMBER_ID AS BOLID,
+						A.LINENUMBER
+					FROM btp_panasonic_invoiceline AS A
+					WHERE A.INVOICENUMBER_INVOICENUMBER = v_invoiceno
+						AND A.containerID = v_containerid
+						AND A.BTP_IBDNUMBER = v_documentno
+						AND A.BTP_IBDACTION = 'C'
+						AND A.DIVERSIONFLAG IS NULL
+						AND A.INVOICENUMBER_HOUSEBOLNUMBER_ID < I_BOLID;
+
+			FOR curent_row AS C_InvoiceLineDatSet DO
+				UPDATE BTP_PANASONIC_INVOICELINE
+                SET 
+					BTP_IBDNUMBER = curent_row.BTP_IBDNUMBER,
+					-- INC0219526.n Need to update when action is U 
+				BTP_IBDACTION = v_BTP_IBDAction,
+					BTP_IBDStatus = v_BTP_IBDStatus,
+					SAP_LINEID_IBD = curent_row.SAP_LINEID_IBD
+                WHERE -- INC0219526.n Need to update when action is U
+					INVOICENUMBER_HOUSEBOLNUMBER_ID = I_BOLID
+					AND INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = v_bol
+					AND INVOICENUMBER_INVOICENUMBER = v_invoiceno
+					AND linenumber = curent_row.LINENUMBER
+					AND containerid = v_containerid
+					AND DIVERSIONFLAG IS NULL
+					AND BTP_IBDNUMBER IS NULL
+					AND (Status IN ('O', 'E', 'P', 'C'));
+			END FOR;
+		END;
+	END IF;
+	-- There should not be an Invoiceline with Status 'C' and IBDNumber Null if Diversion has not occurred on Line
+	--INC0219526.en  	
+
+	-- Update the Line Status to "P" or "C" when IBD is processed thru workflow or when Reprocess occurs from Dashboard
+	BEGIN
+		DECLARE CURSOR c_btp_grstatus FOR
+			SELECT 
+				BTP_GRSTATUS,
+				BTP_IBDNUMBER,					-- INC0219526.sn
+				BTP_IBDACTION,
+				BTP_IBDSTATUS AS SAP_LINEID_IBD,
+				INVOICENUMBER_INVOICENUMBER AS INVOICENUM,
+				INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER AS BOLNUM,
+				INVOICENUMBER_HOUSEBOLNUMBER_ID AS BOLID,
+				containerID,
+				LINENUMBER,					-- INC0219526.en
+				BTP_GRACTION
+			FROM btp_panasonic_invoiceline
+			WHERE INVOICENUMBER_INVOICENUMBER = v_invoiceno
+					AND containerID = v_containerid
+					AND DIVERSIONFLAG IS NULL                   -- INC0219526.n
+					AND BTP_IBDNUMBER = v_documentno;
+
+		FOR cur_row AS c_btp_grstatus DO
+			V_BTP_GRSTATUS = cur_row.btp_grstatus;
+			IF ( V_BTP_GRSTATUS = 'S' ) THEN
+				UPDATE BTP_PANASONIC_INVOICELINE AS A
+                SET 
+					A.BTP_IBDACTION = v_BTP_IBDAction,
+					A.BTP_IBDStatus = v_BTP_IBDStatus,
+					A.STATUS = 'C'
+                WHERE A.INVOICENUMBER_HOUSEBOLNUMBER_ID = cur_row.BOLID
+					AND -- INC0219526.n
+					A.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = cur_row.BOLNUM
+					AND -- INC0219526.n
+					A.INVOICENUMBER_INVOICENUMBER = v_invoiceno
+					AND A.linenumber = cur_row.LINENUMBER
+					AND -- INC0219526.n
+					a.containerid = cur_row.containerID
+					AND -- INC0219526.n
+					A.BTP_IBDNUMBER = v_documentno
+					AND DROPSHIP_STATUS(A.PurchaseOrderNumber) = 'Drop'
+					AND (A.BTP_IBDStatus <> v_BTP_IBDStatus
+						OR A.BTP_IBDACTION <> v_BTP_IBDACTION
+						OR A.STATUS <> 'C')
+					AND (-- INC0219526.n
+						-- AND a.containerid = v_containerid                                               -- INC0219526.o Takes into account Container Change
+						--	AND A.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = v_bol                       -- INC0219526.o Takes into account BOL Change
+						A.INVOICENUMBER_HOUSEBOLNUMBER_ID IN (SELECT MAX(B.INVOICENUMBER_HOUSEBOLNUMBER_ID)
+						FROM BTP_PANASONIC_INVOICELINE AS B
+						WHERE B.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = A.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER
+							AND B.INVOICENUMBER_INVOICENUMBER = A.INVOICENUMBER_INVOICENUMBER
+							AND B.linenumber = A.linenumber
+							AND B.purchaseOrderNumber = A.purchaseOrderNumber
+							AND B.PARTID = A.PARTID
+							AND B.BTP_IBDNUMBER = A.BTP_IBDNUMBER
+						GROUP BY 
+							-- INC0219526.sn
+						B.INVOICENUMBER_INVOICENUMBER,
+							B.linenumber));
+			ELSE
+				-- INC0219526.en
+				
+-- UPDATE Status to 'P' for all remaining lines.    
+				UPDATE BTP_PANASONIC_INVOICELINE AS A
+                SET 
+					A.BTP_IBDACTION = v_BTP_IBDAction,
+					A.BTP_IBDStatus = v_BTP_IBDStatus,
+					A.STATUS = 'P'
+                WHERE A.INVOICENUMBER_HOUSEBOLNUMBER_ID = cur_row.BOLID
+					AND -- INC0219526.n
+					A.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = cur_row.BOLNUM
+					AND -- INC0219526.n
+					A.INVOICENUMBER_INVOICENUMBER = v_invoiceno
+					AND A.LINENUMBER = cur_row.LINENUMBER
+					AND -- INC0219526.n
+					a.containerid = cur_row.containerID
+					AND -- INC0219526.n
+					A.BTP_IBDNUMBER = v_documentno
+					AND (A.BTP_IBDACTION <> v_BTP_IBDAction
+						OR A.BTP_IBDStatus <> v_BTP_IBDStatus
+						OR A.STATUS <> 'P')
+					AND --	AND A.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = v_bol                       --INC0219526.o Takes into account BOL Change
+					--     a.containerid = v_containerid                                               --INC0219526.o Takes into account Container Change
+					A.BTP_IBDACTION != 'D'
+					AND (A.Status = 'O'
+						OR A.Status = 'E')
+					AND DROPSHIP_STATUS(A.PurchaseOrderNumber) = 'Drop'
+					AND (A.INVOICENUMBER_HOUSEBOLNUMBER_ID IN (-- INC0219526.so Removed SubSelect as it is expensive.. we are doing updates on same line multiple times.
+						SELECT MAX(B.INVOICENUMBER_HOUSEBOLNUMBER_ID)
+						FROM BTP_PANASONIC_INVOICELINE AS B
+						WHERE B.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = A.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER
+							AND B.INVOICENUMBER_INVOICENUMBER = A.INVOICENUMBER_INVOICENUMBER
+							AND B.purchaseOrderNumber = A.purchaseOrderNumber
+							AND B.linenumber = A.linenumber
+							AND B.BTP_IBDACTION != 'D'
+							AND B.PARTID = A.PARTID));
+				
+				UPDATE BTP_PANASONIC_INVOICELINE AS A
+                SET 
+					A.BTP_IBDACTION = v_BTP_IBDAction,
+					A.BTP_IBDStatus = v_BTP_IBDStatus,
+					A.STATUS = 'C'
+                WHERE A.INVOICENUMBER_HOUSEBOLNUMBER_ID = cur_row.BOLID
+					AND -- INC0219526.sn
+					A.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = cur_row.BOLNUM
+					AND --INC0219526.o Takes into account BOL Change
+					A.INVOICENUMBER_INVOICENUMBER = v_invoiceno
+					AND A.LINENUMBER = cur_row.LINENUMBER
+					AND -- INC0219526.n
+					a.containerid = v_containerid
+					AND A.BTP_IBDNUMBER = v_documentno
+					AND A.BTP_IBDACTION != 'D'
+					AND (A.Status = 'O'
+						OR A.Status = 'E'
+						OR A.Status = 'P')
+					AND (DROPSHIP_STATUS(A.PurchaseOrderNumber) = 'Stock'
+						OR (DROPSHIP_STATUS(A.PurchaseOrderNumber) = 'Drop'
+						AND A.BTP_GRACTION = 'C'
+						AND A.BTP_GRSTATUS = 'S'));
+			END IF;
+			COMMIT;
+		END FOR;
+	END;
+END

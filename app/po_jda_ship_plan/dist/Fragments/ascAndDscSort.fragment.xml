@@ -1,0 +1,30 @@
+<core:FragmentDefinition
+	xmlns="sap.m"
+	xmlns:core="sap.ui.core">
+	<ViewSettingsDialog 
+		confirm="handleSortDialogConfirm">
+		<sortItems  >
+			<ViewSettingsItem text="{i18n>PROC_DT}" key="proc_date"  />
+			<ViewSettingsItem text="{i18n>COUNTER}" key="counter"  />
+			<ViewSettingsItem text="{i18n>MATNR}" key="matnr" />
+			<ViewSettingsItem text="{i18n>ZSALESORD}" key="salesord" />
+			<ViewSettingsItem text="{i18n>ZSALESORDLINE}" key="salesordline" />
+			<ViewSettingsItem text="{i18n>ZDEST}" key="dest" />
+			<ViewSettingsItem text="{i18n>ZSOURCE}" key="source" />
+			<ViewSettingsItem text="{i18n>ZSOURCING}" key="sourcing" />
+			<ViewSettingsItem text="{i18n>ZSSHIPDATE}" key="shipdate" />
+			<ViewSettingsItem text="{i18n>ZSARRDATE}" key="sardate" />
+			<ViewSettingsItem text="{i18n>ZQTY}" key="quantity" />
+			<ViewSettingsItem text="{i18n>ZTMODE}" key="tmode" />
+			<ViewSettingsItem text="{i18n>ZSEGMNET}" key="segment" />
+			<ViewSettingsItem text="{i18n>ZDEMAND}" key="demand" />
+			<ViewSettingsItem text="{i18n>ZPATTERN}" key="pattern" />
+			<ViewSettingsItem text="{i18n>ZITEMTYPE}" key="itemtype" />
+			<ViewSettingsItem text="{i18n>ZJDASOURCE}" key="jdasource" />
+			<ViewSettingsItem text="{i18n>ZJDASUPPLY}" key="jdasupply" />
+			<ViewSettingsItem text="{i18n>ZUDEST}" key="udest" />
+
+			
+		</sortItems>
+	</ViewSettingsDialog>
+</core:FragmentDefinition>

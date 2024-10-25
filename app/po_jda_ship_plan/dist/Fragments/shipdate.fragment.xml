@@ -1,0 +1,25 @@
+<c:FragmentDefinition
+	xmlns="sap.m"
+	xmlns:c="sap.ui.core">
+
+
+  <SelectDialog  
+  noDataText="{i18n>NoDataFound}"
+  title="{i18n>ZSSHIPDATE}"
+  liveChange="onSearchShipDate"
+  confirm="onSelectionShipDate"
+  cancel="onDialogClose"
+  multiSelect="true"
+  items="{shipdateData>/}">
+
+<StandardListItem 
+
+title="{path: 'shipdateData>shipdate'}"
+iconDensityAware="false"
+iconInset="false"
+type="Active" />
+
+
+</SelectDialog >
+</c:FragmentDefinition>
+

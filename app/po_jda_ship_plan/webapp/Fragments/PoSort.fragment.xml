@@ -1,0 +1,43 @@
+<core:FragmentDefinition
+	xmlns="sap.m"
+	xmlns:core="sap.ui.core">
+	<ViewSettingsDialog 
+		confirm="handleSortDialogConfirm">
+		<sortItems  >
+			<ViewSettingsItem text="{i18n>PROC_DT}" key="PROC_DATE"  />
+            <ViewSettingsItem text="{i18n>PROC_TIME}" key="PROC_TIME"  />
+			<ViewSettingsItem text="{i18n>COUNTER}" key="COUNTER"  />
+			<ViewSettingsItem text="{i18n>MATNR}" key="MATNR" />
+			<ViewSettingsItem text="{i18n>ZSALESORD}" key="SALESORD" />
+			<ViewSettingsItem text="{i18n>ZSALESORDLINE}" key="SALESORDLINE" />
+			<ViewSettingsItem text="{i18n>ZDEST}" key="DEST" />
+			<ViewSettingsItem text="{i18n>ZSOURCE}" key="SOURCE" />
+			<ViewSettingsItem text="{i18n>ZSOURCING}" key="SOURCING" />
+			<ViewSettingsItem text="{i18n>ZSSHIPDATE}" key="SHIPDATE" />
+			<ViewSettingsItem text="{i18n>ZSARRDATE}" key="SARDATE" />
+			<ViewSettingsItem text="{i18n>ZQTY}" key="QUANTITY" />
+			<ViewSettingsItem text="{i18n>ZTMODE}" key="TMODE" />
+			<ViewSettingsItem text="{i18n>ZSEGMNET}" key="SEGMENT" />
+			<ViewSettingsItem text="{i18n>ZDEMAND}" key="DEMAND" />
+			<ViewSettingsItem text="{i18n>ZPATTERN}" key="PATTERN" />
+			<ViewSettingsItem text="{i18n>ZITEMTYPE}" key="ITEMTYPE" />
+			<ViewSettingsItem text="{i18n>ZJDASOURCE}" key="JDASOURCE" />
+			<ViewSettingsItem text="{i18n>ZJDASUPPLY}" key="JDASUPPLY" />
+			<ViewSettingsItem text="{i18n>ZUDEST}" key="UDEST" />
+			<ViewSettingsItem text="{i18n>Status}" key="STATUS" />
+            <ViewSettingsItem text="{i18n>ShipPlanRecFrom}" key="SHIP_PLAN_RECEIVED_FROM" />
+            <ViewSettingsItem text="{i18n>ShipPlanRecTo}" key="SHIP_PLAN_RECEIVED_TO" />
+            <ViewSettingsItem text="{i18n>ShipPlanSource}" key="SHIP_PLAN_SOURCE" />
+            <ViewSettingsItem text="{i18n>ShipDateFrom}" key="SHIP_FROM" />
+            <ViewSettingsItem text="{i18n>ShipDateTo}" key="SHIP_TO" />
+            <ViewSettingsItem text="{i18n>poSupplyType}" key="SUPPLYTYPE" />
+            <ViewSettingsItem text="{i18n>purOrg}" key="PURCHASING_ORG" />
+            <ViewSettingsItem text="{i18n>purGroup}" key="PURCHASING_GROUP" />
+            <ViewSettingsItem text="{i18n>plant}" key="PLANT" />
+            <ViewSettingsItem text="{i18n>vendor}" key="VENDOR" />
+            <ViewSettingsItem text="{i18n>venIndicator}" key="VENDOR_I_E_INDICATOR" />
+            <ViewSettingsItem text="{i18n>subConVendor}" key="SUB_CON_VENDOR" />
+            <ViewSettingsItem text="{i18n>defaultDest}" key="DEFAULT_DEST" />	
+		</sortItems>
+	</ViewSettingsDialog>
+</core:FragmentDefinition>

@@ -1,0 +1,33 @@
+-- Preethi added for 214 pt 11 on 12/02/24
+FUNCTION GET_MNET_STATUS(
+    BOL NVARCHAR(18),
+    InvNo NVARCHAR(16),
+    OrderNum NVARCHAR(5),
+    LineNo NVARCHAR(30)
+  ) 
+  RETURNS MStat NVARCHAR(1) AS 
+BEGIN
+  DECLARE LatestMStat NVARCHAR(1);
+  -- Check if the value exists in InvoiceLine
+  IF EXISTS (
+    SELECT 1
+    FROM BTP_PANASONIC_invoiceLine
+    WHERE INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = BOL
+      AND INVOICENUMBER_INVOICENUMBER = InvNo
+      AND orderItemNbr = OrderNum
+      AND LINENUMBER = LineNo
+  ) THEN 
+  -- Retrieve Status for latest MNET from InvoiceLine
+  SELECT TOP 1 T2.status INTO LatestMStat
+  FROM BTP_PANASONIC_invoiceLine AS T2
+  WHERE T2.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = BOL
+    AND T2.INVOICENUMBER_INVOICENUMBER = InvNo
+    AND T2.orderItemNbr = OrderNum
+    AND T2.LINENUMBER = LineNo 
+  -- Added by Preethi on 12/02/24
+  ORDER BY T2.INVOICENUMBER_HOUSEBOLNUMBER_ID DESC;
+  -- ELSE
+  --     LatestMStat = 0;
+END IF;
+MStat = LatestMStat;
+END;

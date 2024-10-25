@@ -1,0 +1,39 @@
+--Nithya added for defect FINT-00065 on 16/12
+  FUNCTION GET_DISTATUS(BOLNO VARCHAR(18), INV VARCHAR(16)) 
+  RETURNS StatusId VARCHAR(20) AS 
+BEGIN
+  DECLARE DIStatus VARCHAR(20);
+DECLARE latestcount INTEGER;
+  
+    SELECT COUNT(T6.MODIFIEDAT) INTO latestcount
+  FROM BTP_PANASONIC_MNetStatusMonitoring AS T6
+  WHERE T6.houseBOLNumber = BOLNO
+    AND T6.invoiceNumber = INV
+    AND T6.ObjectType = 'ASN/DI'
+    AND (
+      T6.STATUS = 'ETH'
+      OR T6.STATUS = 'ET'
+      OR T6.STATUS = 'S'
+      OR T6.STATUS = 'EH');
+
+  IF(latestcount > 0) THEN
+
+ SELECT  T6.Status INTO DIStatus
+  FROM BTP_PANASONIC_MNetStatusMonitoring AS T6
+  WHERE T6.houseBOLNumber = BOLNO
+    AND T6.invoiceNumber = INV
+    AND T6.ObjectType = 'ASN/DI'
+    AND (
+      T6.STATUS = 'ETH'
+      OR T6.STATUS = 'ET'
+      OR T6.STATUS = 'S'
+      OR T6.STATUS = 'EH'
+    )
+  ORDER BY T6.MODIFIEDAT DESC
+LIMIT 1;
+StatusId = DIStatus;
+IF DIStatus ='EH' THEN 
+StatusId = '';
+END IF;
+END IF;
+END;

@@ -1,0 +1,24 @@
+-- Preethi added for FINT-00063 on 04/12/23
+FUNCTION GET_CONF_QTY(PO NVARCHAR(10),PO_ITEM NVARCHAR(5),RNUM NVARCHAR(10))
+    RETURNS CQTY INTEGER
+    AS
+    BEGIN
+        DECLARE LatestQty INTEGER;
+    
+        -- Check if the value exists in POConfirmationData
+        IF EXISTS (SELECT 1 FROM BTP_PANASONIC_POConfirmationData WHERE PurchaseOrder = PO AND PurchaseOrderItem = PO_ITEM)
+            THEN
+            -- Retrieve quantity from POConfirmationData
+            SELECT TOP 1 T2.Quanity INTO LatestQty
+            FROM BTP_PANASONIC_POConfirmationData AS T2
+            WHERE T2.PurchaseOrder = PO AND T2.PurchaseOrderItem = PO_ITEM AND T2.RevisionNumber = RNUM
+            -- Added by Preethi on 15/12/23 
+            ORDER BY T2.CREATEDAT DESC;    
+
+        ELSE
+            LatestQty = 0;   
+        
+        END IF;
+    
+            CQTY = LatestQty;
+    END;

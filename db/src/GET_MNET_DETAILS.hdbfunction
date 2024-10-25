@@ -1,0 +1,349 @@
+FUNCTION "GET_MNET_DETAILS"( V_BOL NVARCHAR(30),V_INVID NVARCHAR(30),
+V_CONID NVARCHAR(30),V_PO NVARCHAR(30),V_OBJTYPE NVARCHAR(30),
+V_OBJID NVARCHAR(30),V_PURCHASEORDERITEM NVARCHAR(10),V_OUTPUT_TYPE NVARCHAR(20))
+    RETURNS V_OUTPUT VARCHAR(30)
+    LANGUAGE SQLSCRIPT
+    SQL SECURITY INVOKER AS
+BEGIN
+-- Defect206part3a, Defect206part3b Fixed the query against invoiceline which occurs when ETA or BOL change occurs.
+-- Defect206part3c - Fixed issue with GoodsReceipt and issue with B2B ETA and BOL 
+-- Defect206part3d - Fixed issue with GoodsReceipt and issue with B2B ETA and BOL 
+
+Declare M_ID INTEGER;
+Declare M_CNT INTEGER;
+Declare M_BOLID INTEGER;			    -- Defect206part3a.n
+Declare M_IBD_NO    NVARCHAR(30);       -- Defect206part3c.n
+Declare M_IBD_LINENO    NVARCHAR(30);   -- Defect206part3c.n
+Declare M_GR_NO    NVARCHAR(30);        -- Defect206part3c.n
+Declare M_GR_LINENO    NVARCHAR(30);    -- Defect206part3c.n
+Declare M_INVOICENUMBER    NVARCHAR(30);     -- Defect206part3c.n
+Declare M_INVOICE_LINENO    NVARCHAR(30);    -- Defect206part3c.n
+
+M_CNT = 0 ;
+
+IF V_OBJTYPE = 'InboundDelivery' THEN 
+    Select COUNT(T0.ID) INTO M_CNT from BTP_PANASONIC_MNETSTATUSMONITORING As T0 
+    Inner join BTP_PANASONIC_MNETSTATUSMONITORINGITEM As T1 on T0.ID = T1.ID_ID
+    Where T0.HOUSEBOLNUMBER = V_BOL 
+    And T0.INVOICENUMBER = V_INVID 
+    AND T0.CONTAINERID = V_CONID 
+    And T1.PURCHASEORDER = V_PO 
+    And T0.OBJECTTYPE = V_OBJTYPE 
+    And T0.STATUS = 'S' 
+    AND T1.PURCHASEORDERITEM = V_PURCHASEORDERITEM ;
+    IF M_CNT > 0 THEN 
+        Select MAX(T0.ID) INTO M_ID from BTP_PANASONIC_MNETSTATUSMONITORING As T0 
+        Inner join BTP_PANASONIC_MNETSTATUSMONITORINGITEM As T1 on T0.ID = T1.ID_ID
+        Where T0.HOUSEBOLNUMBER = V_BOL 
+        And T0.INVOICENUMBER = V_INVID 
+        AND T0.CONTAINERID = V_CONID 
+        And T1.PURCHASEORDER = V_PO 
+        And T0.OBJECTTYPE = V_OBJTYPE 
+        And T0.STATUS = 'S' 
+        AND T1.PURCHASEORDERITEM = V_PURCHASEORDERITEM ;
+        IF V_OUTPUT_TYPE = 'M_ID' THEN 
+            Select M_ID INTO V_OUTPUT From Dummy;
+        END IF;
+
+        IF V_OUTPUT_TYPE = 'V_OBJID' THEN 
+            Select T0.OBJECTREFNO INTO V_OUTPUT  From BTP_PANASONIC_MNETSTATUSMONITORING As T0 
+            Where T0.ID = M_ID ;
+        END IF;
+
+        IF V_OUTPUT_TYPE = 'V_IBD_LINE' THEN 
+            Select T1.SAP_LINEID into V_OUTPUT  from BTP_PANASONIC_MNETSTATUSMONITORINGITEM As T1 
+            WHere T1.ID_ID = M_ID And T1.PURCHASEORDERITEM = V_PURCHASEORDERITEM;
+        END IF;
+    ELSE             -- Defect206part3a.sn When ETA Change or BOL Change occurs there is no entries in MNETStatusMonitoringItem.
+        Select COUNT(T1.INVOICENUMBER_HOUSEBOLNUMBER_ID) INTO M_CNT 
+        FROM BTP_PANASONIC_INVOICELINE As T1 
+        WHERE T1.INVOICENUMBER_INVOICENUMBER = V_INVID
+        AND T1.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = V_BOL
+        AND T1.ContainerID	= V_CONID
+        And T1.PURCHASEORDERNUMBER = V_PO 
+        And T1.BTP_IBDSTATUS = 'S' 
+        AND T1.ORDERITEMNBR = V_PURCHASEORDERITEM ;
+        
+        IF M_CNT > 0 THEN 
+            -- Defect206part3c.sn
+            SELECT T1.INVOICENUMBER_HOUSEBOLNUMBER_ID,T1.BTP_IBDNUMBER, T1.SAP_LINEID_IBD INTO M_BOLID, M_IBD_NO, M_IBD_LINENO
+			FROM BTP_PANASONIC_INVOICELINE As T1 
+		    WHERE T1.INVOICENUMBER_INVOICENUMBER = V_INVID
+            AND T1.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = V_BOL
+            AND T1.ContainerID	= V_CONID
+            And T1.PURCHASEORDERNUMBER = V_PO 
+            And T1.BTP_IBDSTATUS = 'S' 
+            AND T1.ORDERITEMNBR = V_PURCHASEORDERITEM 
+			ORDER BY T1.INVOICENUMBER_HOUSEBOLNUMBER_ID DESC LIMIT 1;
+    
+            IF V_OUTPUT_TYPE = 'V_OBJID' THEN 
+                V_OUTPUT = M_IBD_NO;
+            END IF;
+    
+            IF V_OUTPUT_TYPE = 'V_IBD_LINE' THEN               
+                V_OUTPUT =  M_IBD_LINENO; 
+            END IF;
+                    -- Defect206part3a.en When ETA Change or BOL Change occurs there is no entries in MNETStatusMonitoringItem.
+        END IF;
+           -- Defect206part3c.en            
+    END IF ;
+
+END IF;
+
+IF V_OBJTYPE = 'GoodsReceipt' THEN 
+    Select COUNT(T0.ID) INTO M_CNT from BTP_PANASONIC_MNETSTATUSMONITORING As T0 
+    Where T0.HOUSEBOLNUMBER = V_BOL 
+    And T0.INVOICENUMBER = V_INVID 
+    AND T0.CONTAINERID = V_CONID 
+    And T0.OBJECTTYPE = V_OBJTYPE 
+    And T0.STATUS = 'S'
+    AND T0.OBJECTREFNO = V_OBJID ;
+    IF M_CNT > 0 THEN 
+        Select MAX(T0.ID) INTO M_ID from BTP_PANASONIC_MNETSTATUSMONITORING As T0 
+        Where T0.HOUSEBOLNUMBER = V_BOL 
+        And T0.INVOICENUMBER = V_INVID 
+        AND T0.CONTAINERID = V_CONID 
+        And T0.OBJECTTYPE = V_OBJTYPE
+        And T0.STATUS = 'S'
+        AND T0.OBJECTREFNO = V_OBJID;
+
+        IF V_OUTPUT_TYPE = 'M_ID' THEN 
+            Select M_ID INTO V_OUTPUT From Dummy;
+        END IF;
+		
+		IF V_OUTPUT_TYPE = 'V_OBJID' THEN 											-- Defect206part3c .sn
+            Select T0.OBJECTREFNO INTO V_OUTPUT  From BTP_PANASONIC_MNETSTATUSMONITORING As T0 
+            Where T0.ID = M_ID ;
+        END IF;
+
+        IF V_OUTPUT_TYPE = 'V_IBD_LINE' THEN 
+            Select T1.SAP_LINEID into V_OUTPUT  from BTP_PANASONIC_MNETSTATUSMONITORINGITEM As T1 
+            WHere T1.ID_ID = M_ID And T1.PURCHASEORDERITEM = V_PURCHASEORDERITEM;
+        END IF;																		-- Defect206part3c .en
+				
+        IF V_OUTPUT_TYPE = 'V_GRDATE' THEN 
+            Select T0.GR_DATE INTO V_OUTPUT  From BTP_PANASONIC_MNETSTATUSMONITORING As T0 
+            Where T0.ID = M_ID ;
+        END IF;    
+	ELSE              -- Defect206part3a.sn When ETA Change or BOL Change occurs there is no entries in MNETStatusMonitoringItem.
+	    Select COUNT(T1.INVOICENUMBER_HOUSEBOLNUMBER_ID) INTO M_CNT 
+        FROM BTP_PANASONIC_INVOICELINE As T1 
+        WHERE T1.INVOICENUMBER_INVOICENUMBER = V_INVID
+        AND T1.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = V_BOL
+        AND T1.ContainerID	= V_CONID
+        And T1.PURCHASEORDERNUMBER = V_PO 
+        And T1.BTP_GRSTATUS = 'S' 
+        AND T1.ORDERITEMNBR = V_PURCHASEORDERITEM ;
+            
+		IF M_CNT > 0 THEN 						
+                    -- Defect206part3c.sn
+            SELECT T1.INVOICENUMBER_HOUSEBOLNUMBER_ID,T1.BTP_GRNUMBER, T1.SAP_LINEID_GR INTO M_BOLID, M_GR_NO, M_GR_LINENO
+			FROM BTP_PANASONIC_INVOICELINE As T1 
+		    WHERE T1.INVOICENUMBER_INVOICENUMBER = V_INVID
+            AND T1.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = V_BOL
+            AND T1.ContainerID	= V_CONID
+            And T1.PURCHASEORDERNUMBER = V_PO 
+            And T1.BTP_GRSTATUS = 'S' 
+            AND T1.ORDERITEMNBR = V_PURCHASEORDERITEM 
+			ORDER BY T1.INVOICENUMBER_HOUSEBOLNUMBER_ID DESC LIMIT 1;
+    
+            IF V_OUTPUT_TYPE = 'V_OBJID' THEN 
+                V_OUTPUT =  M_GR_NO;
+            END IF;
+    
+            IF V_OUTPUT_TYPE = 'V_IBD_LINE' THEN               
+                V_OUTPUT =  M_GR_LINENO; 
+            END IF;
+
+            Select  COUNT(T1.INVOICENUMBER_HOUSEBOLNUMBER_ID) INTO M_CNT 
+            from BTP_PANASONIC_MNETSTATUSMONITORING As T0
+                Inner join BTP_PANASONIC_INVOICELINE As T1 on T0.BOLID = T1.INVOICENUMBER_HOUSEBOLNUMBER_ID
+                Inner join BTP_PANASONIC_MNETSTATUSMONITORINGItem As T2 on T0.ID = T2.ID_ID      --Defect 206part3c.n
+                    Where T0.BOLID = M_BOLID  
+                    And T0.HOUSEBOLNUMBER = V_BOL 
+                    And T0.INVOICENUMBER = V_INVID 
+                    AND T0.CONTAINERID = V_CONID
+                    AND T1.INVOICENUMBER_INVOICENUMBER =  T0.INVOICENUMBER
+                    AND T1.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = T0.HOUSEBOLNUMBER
+                    And T1.PURCHASEORDERNUMBER = V_PO 
+                    And T0.OBJECTTYPE = V_OBJTYPE 
+                    And T0.OBJECTREFNO = M_GR_NO
+                    And T0.STATUS = 'S' 
+                    AND T1.ORDERITEMNBR = V_PURCHASEORDERITEM
+                    AND T2.SAP_LINEID = M_GR_LINENO;                                      --Defect 206part3c.n
+
+            IF M_CNT > 0 THEN
+                Select T0.ID INTO M_ID from BTP_PANASONIC_MNETSTATUSMONITORING As T0
+                Inner join BTP_PANASONIC_INVOICELINE As T1 on T0.BOLID = T1.INVOICENUMBER_HOUSEBOLNUMBER_ID
+                Inner join BTP_PANASONIC_MNETSTATUSMONITORINGItem As T2 on T0.ID = T2.ID_ID      --Defect 206part3c.n
+                Where T0.BOLID = M_BOLID  
+                And T0.HOUSEBOLNUMBER = V_BOL 
+                And T0.INVOICENUMBER = V_INVID 
+                AND T0.CONTAINERID = V_CONID
+                AND T1.INVOICENUMBER_INVOICENUMBER =  T0.INVOICENUMBER
+                AND T1.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = T0.HOUSEBOLNUMBER
+                And T1.PURCHASEORDERNUMBER = V_PO 
+                And T0.OBJECTTYPE = V_OBJTYPE 
+                And T0.OBJECTREFNO = M_GR_NO
+                And T0.STATUS = 'S' 
+                AND T1.ORDERITEMNBR = V_PURCHASEORDERITEM
+                AND T2.SAP_LINEID = M_GR_LINENO
+                ORDER BY T0.ID DESC LIMIT 1;                                             --Defect 206part3c.n
+                
+                IF V_OUTPUT_TYPE = 'M_ID' THEN 
+                    Select M_ID INTO V_OUTPUT From Dummy;
+                END IF;
+            
+                IF V_OUTPUT_TYPE = 'V_GRDATE' THEN 
+                                                                               
+                    Select T0.GR_DATE INTO V_OUTPUT  From BTP_PANASONIC_MNETSTATUSMONITORING As T0 
+                    Where T0.ID = M_ID ;
+                END IF;		
+            END IF;
+                    -- Defect206part3a.en When ETA Change or BOL Change occurs there is no entries in MNETStatusMonitoringItem.
+        END IF;
+           -- Defect206part3c.en            
+	END IF ;
+END IF;
+
+IF V_OBJTYPE = 'Invoice' THEN 
+    Select COUNT(T0.ID) INTO M_CNT 
+    from BTP_PANASONIC_MNETSTATUSMONITORING As T0, BTP_PANASONIC_MNETSTATUSMONITORINGITEM As T1 
+    Where T0.ID = T1.ID_ID
+    And 
+    --T0.HOUSEBOLNUMBER = V_BOL 
+    --And T0.INVOICENUMBER = V_INVID 
+    --AND T0.CONTAINERID = V_CONID 
+    --And 
+    T1.PURCHASEORDER = V_PO
+    And T0.OBJECTTYPE = V_OBJTYPE 
+    And T0.STATUS = 'S' 
+    AND T1.PURCHASEORDERITEM = V_PURCHASEORDERITEM ;
+    IF M_CNT > 0 THEN 
+        Select MAX(T0.ID) INTO M_ID from BTP_PANASONIC_MNETSTATUSMONITORING As T0 
+        Inner join BTP_PANASONIC_MNETSTATUSMONITORINGITEM As T1 on T0.ID = T1.ID_ID
+        Where 
+        -- T0.HOUSEBOLNUMBER = V_BOL 
+        -- And T0.INVOICENUMBER = V_INVID 
+        -- AND T0.CONTAINERID = V_CONID 
+         -- And 
+        T1.PURCHASEORDER = V_PO 
+        And T0.OBJECTTYPE = V_OBJTYPE 
+        And T0.STATUS = 'S' 
+        AND T1.PURCHASEORDERITEM = V_PURCHASEORDERITEM ;
+        IF V_OUTPUT_TYPE = 'M_ID' THEN 
+            Select M_ID INTO V_OUTPUT From Dummy;
+        END IF;
+
+        IF V_OUTPUT_TYPE = 'V_OBJID' THEN 
+            Select T0.OBJECTREFNO INTO V_OUTPUT  From BTP_PANASONIC_MNETSTATUSMONITORING As T0 
+            Where T0.ID = M_ID ;
+        END IF;
+        IF V_OUTPUT_TYPE = 'V_FISCALYEAR' THEN 
+            Select T0.FISCALYEAR INTO V_OUTPUT  From BTP_PANASONIC_MNETSTATUSMONITORING As T0 
+            Where T0.ID = M_ID ;
+        END IF;     
+        IF V_OUTPUT_TYPE = 'V_DATE' THEN 
+            Select  Replace(SUBSTRING (T0.OBJECTREFDATE,0,10)||'T'||SUBSTRING (T0.OBJECTREFDATE,11,9)||'Z',' ','') INTO V_OUTPUT  From BTP_PANASONIC_MNETSTATUSMONITORING As T0 
+            Where T0.ID = M_ID ;
+        END IF;       
+
+        IF V_OUTPUT_TYPE = 'V_IBD_LINE' THEN 
+            Select T1.SAP_LINEID into V_OUTPUT  from BTP_PANASONIC_MNETSTATUSMONITORINGITEM As T1 
+            WHere T1.ID_ID = M_ID And T1.PURCHASEORDERITEM = V_PURCHASEORDERITEM;
+        END IF;
+
+	ELSE              -- Defect206part3a.sn When ETA Change or BOL Change occurs there is no entries in MNETStatusMonitoringItem.
+        Select COUNT(T1.INVOICENUMBER_HOUSEBOLNUMBER_ID) INTO M_CNT 
+        FROM BTP_PANASONIC_INVOICELINE As T1 
+        WHERE T1.INVOICENUMBER_INVOICENUMBER = V_INVID
+        AND T1.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = V_BOL
+        AND T1.ContainerID	= V_CONID
+        And T1.PURCHASEORDERNUMBER = V_PO 
+        And T1.BTP_INVOICESTATUS = 'S' 
+        AND T1.ORDERITEMNBR = V_PURCHASEORDERITEM ;
+        
+		IF M_CNT > 0 THEN 
+	 -- 	Select MAX(T0.ID) INTO M_ID from BTP_PANASONIC_MNETSTATUSMONITORING As T0 		--Defect206part3b.o
+	/*		Select T0.ID, T0.BOLID INTO M_ID, M_BOLID from BTP_PANASONIC_MNETSTATUSMONITORING As T0 
+			Inner join BTP_PANASONIC_INVOICELINE As T1 on T0.BOLID = T1.INVOICENUMBER_HOUSEBOLNUMBER_ID
+			Where T0.HOUSEBOLNUMBER = V_BOL 
+			And T0.INVOICENUMBER = V_INVID 
+			AND T0.CONTAINERID = V_CONID
+			AND T1.INVOICENUMBER_INVOICENUMBER =  T0.INVOICENUMBER
+			AND T1.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = T0.HOUSEBOLNUMBER
+			And T1.PURCHASEORDERNUMBER = V_PO 
+			And T0.OBJECTTYPE = V_OBJTYPE 
+			And T0.STATUS = 'S' 
+			AND T1.ORDERITEMNBR = V_PURCHASEORDERITEM ; */
+                        -- Defect206part3c.sn
+            SELECT T1.INVOICENUMBER_HOUSEBOLNUMBER_ID,T1.BTP_INVOICENUMBER, T1.SAP_LINEID_INVOICE INTO M_BOLID, M_INVOICENUMBER, M_INVOICE_LINENO
+            FROM BTP_PANASONIC_INVOICELINE As T1 
+            WHERE T1.INVOICENUMBER_INVOICENUMBER = V_INVID
+            AND T1.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = V_BOL
+            AND T1.ContainerID	= V_CONID
+            And T1.PURCHASEORDERNUMBER = V_PO 
+            And T1.BTP_INVOICESTATUS = 'S' 
+            AND T1.ORDERITEMNBR = V_PURCHASEORDERITEM
+            ORDER BY T1.INVOICENUMBER_HOUSEBOLNUMBER_ID, T1.SAP_LINEID_INVOICE DESC LIMIT 1;       --Defect 206part3c.n 
+                
+            IF V_OUTPUT_TYPE = 'V_OBJID' THEN 
+                    V_OUTPUT =  M_INVOICENUMBER;
+            END IF;
+                
+            IF V_OUTPUT_TYPE = 'V_IBD_LINE' THEN               
+                    V_OUTPUT =  M_INVOICE_LINENO; 
+            END IF;
+            
+            Select COUNT(T0.ID) INTO M_CNT 
+            from BTP_PANASONIC_MNETSTATUSMONITORING As T0
+            Inner join BTP_PANASONIC_INVOICELINE As T1 on T0.BOLID = T1.INVOICENUMBER_HOUSEBOLNUMBER_ID
+            Where T0.BOLID = M_BOLID  
+            And T0.HOUSEBOLNUMBER = V_BOL 
+            And T0.INVOICENUMBER = V_INVID 
+            AND T0.CONTAINERID = V_CONID
+            AND T1.INVOICENUMBER_INVOICENUMBER =  T0.INVOICENUMBER
+            AND T1.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = T0.HOUSEBOLNUMBER
+            And T1.PURCHASEORDERNUMBER = V_PO 
+            And T0.OBJECTTYPE = V_OBJTYPE 
+            And T0.OBJECTREFNO = M_INVOICENUMBER
+            And T0.STATUS = 'S' 
+            AND T1.ORDERITEMNBR = V_PURCHASEORDERITEM ;
+            
+            IF M_CNT > 0 THEN 
+                Select T0.ID INTO M_ID from BTP_PANASONIC_MNETSTATUSMONITORING As T0
+                Inner join BTP_PANASONIC_INVOICELINE As T1 on T0.BOLID = T1.INVOICENUMBER_HOUSEBOLNUMBER_ID
+                Where T0.BOLID = M_BOLID  
+                And T0.HOUSEBOLNUMBER = V_BOL 
+                And T0.INVOICENUMBER = V_INVID 
+                AND T0.CONTAINERID = V_CONID
+                AND T1.INVOICENUMBER_INVOICENUMBER =  T0.INVOICENUMBER
+                AND T1.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = T0.HOUSEBOLNUMBER
+                And T1.PURCHASEORDERNUMBER = V_PO 
+                And T0.OBJECTTYPE = V_OBJTYPE 
+                And T0.OBJECTREFNO = M_INVOICENUMBER
+                And T0.STATUS = 'S' 
+                AND T1.ORDERITEMNBR = V_PURCHASEORDERITEM ;
+                            
+                IF V_OUTPUT_TYPE = 'M_ID' THEN 
+                    Select M_ID INTO V_OUTPUT From Dummy;
+                END IF;
+
+    		    IF V_OUTPUT_TYPE = 'V_FISCALYEAR' THEN 
+				    Select T0.FISCALYEAR INTO V_OUTPUT  From BTP_PANASONIC_MNETSTATUSMONITORING As T0 
+				    Where T0.ID = M_ID ;
+			    END IF;           
+                        
+                IF V_OUTPUT_TYPE = 'V_DATE' THEN 
+                    Select  Replace(SUBSTRING (T0.OBJECTREFDATE,0,10)||'T'||SUBSTRING (T0.OBJECTREFDATE,11,9)||'Z',' ','') INTO V_OUTPUT  From BTP_PANASONIC_MNETSTATUSMONITORING As T0 
+                    Where T0.ID = M_ID ;
+                END IF;
+            END IF;         
+                       -- Defect206part3c.en                
+         -- Defect206part3a.en When ETA Change or BOL Change occurs there is no entries in MNETStatusMonitoringItem.        
+            
+		END IF ;
+	END IF;
+
+END IF;
+END

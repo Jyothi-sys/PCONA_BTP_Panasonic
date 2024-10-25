@@ -1,0 +1,34 @@
+-- To get the supplier part id from the partid 
+-- example: 1AD10228AAB~1AD10228AAB~00029052 || supplierid~buyerid~globalcode 
+FUNCTION "GET_MNET_ITEM"(V_PARTID NVARCHAR(50) )
+    RETURNS S_PARTID varchar(50)
+    LANGUAGE SQLSCRIPT
+    SQL SECURITY INVOKER AS
+BEGIN
+
+    Select 
+    cast(
+	 case when length(
+                    RTRIM(
+                        SUBSTR(
+                            V_PARTID, (INSTR(V_PARTID, '~', 1) +1), (
+                                LOCATE(V_PARTID, '~', -1)-INSTR(V_PARTID, '~', 1) -1
+                                )
+                            )
+                        )) < 3 then 
+                         RTRIM(SUBSTR(V_PARTID, 1, (INSTR(V_PARTID, '~', 1) - 1)))
+                    	else 
+                    	RTRIM(
+                        SUBSTR(
+                            V_PARTID, (INSTR(V_PARTID, '~', 1) +1), (
+                                LOCATE(V_PARTID, '~', -1)-INSTR(V_PARTID, '~', 1) -1
+                                )
+                            )
+                        )
+                        end
+                        
+                        
+                        as     NVARCHAR(50)
+                    )  into S_PARTID From Dummy ;
+
+END;

@@ -1,0 +1,148 @@
+{
+  "name": "BTP_Panasonic",
+  "version": "1.0.0",
+  "description": "A simple CAP project.",
+  "repository": "<Add your repository here>",
+  "license": "UNLICENSED",
+  "private": true,
+  "engines": {
+    "node": "^18.18.0"
+  },
+  "dependencies": {
+    "@cap-js-community/odata-v2-adapter": "^1.12.12",
+    "@sap-cloud-sdk/http-client": "^3.18.0",
+    "@sap/cds": "^7.0.2",
+    "@sap/cds-odata-v2-adapter-proxy": "^1.9.7",
+    "@sap/hdbext": "^8.0.0",
+    "@sap/xssec": "^3",
+    "axios": "^1.3.1",
+    "base-64": "^1.0.0",
+    "body-parser": "^1.20.1",
+    "cf-nodejs-logging-support": "^7.3.0",
+    "client-oauth2": "^4.3.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.18.2",
+    "global": "^4.4.0",
+    "hdb": "^0.19.5",
+    "passport": "^0",
+    "sap-cf-axios": "^1.0.2",
+    "sap-hdbext-promisfied": "^2.202208.1",
+    "winston": "^3.13.0",
+    "@sap/xotel-agent-ext-js": "https://73555000100200018064.npmsrv.cdn.repositories.cloud.sap/@sap/xotel-agent-ext-js/-/xotel-agent-ext-js-1.5.16.tgz",
+    "@sap/fesr-to-otel-js": "https://73555000100200018064.npmsrv.cdn.repositories.cloud.sap/@sap/fesr-to-otel-js/-/fesr-to-otel-js-1.5.7.tgz"
+  },
+  "devDependencies": {
+    "@sap/hdi-deploy": "^4.5.3",
+    "@sap/ux-specification": "^1.84.87",
+    "rimraf": "^3.0.2",
+    "sqlite3": "^5.0.4"
+  },
+  "scripts": {
+    "start": "node ${NODE_ARGS} ./node_modules/@sap/cds/bin/cds-serve",
+    "watch-po_jda_ship_plan": "cds watch --open po_jda_ship_plan/webapp/index.html?sap-ui-xx-viewCache=false",
+    "undeploy": "cf undeploy BTP_Panasonic --delete-services --delete-service-keys --delete-service-brokers",
+    "build": "rimraf resources mta_archives && mbt build --mtar archive",
+    "deploy": "cf deploy mta_archives/archive.mtar --retries 1",
+    "watch-po_jda_sel": "cds watch --open po_jda_sel/webapp/index.html?sap-ui-xx-viewCache=false"
+  },
+  "eslintConfig": {
+    "extends": "eslint:recommended",
+    "env": {
+      "es2020": true,
+      "node": true,
+      "jest": true,
+      "mocha": true
+    },
+    "globals": {
+      "SELECT": true,
+      "INSERT": true,
+      "UPDATE": true,
+      "DELETE": true,
+      "CREATE": true,
+      "DROP": true,
+      "CDL": true,
+      "CQL": true,
+      "CXL": true,
+      "cds": true
+    },
+    "rules": {
+      "no-console": "off",
+      "require-atomic-updates": "off"
+    }
+  },
+  "cds": {
+    "requires": {
+      "db": {
+        "kind": "hana-cloud"
+      },
+      "MM_PUR_POITEMS_MONI_SRV": {
+        "kind": "odata-v2",
+        "model": "srv/external/MM_PUR_POITEMS_MONI_SRV",
+        "credentials": {
+          "path": "/sap/opu/odata/sap/MM_PUR_POITEMS_MONI_SRV",
+          "destination": "Panasonic_S4HANABasicAuth"
+        }
+      },
+      "API_BUSINESS_PARTNER_API": {
+        "kind": "odata-v2",
+        "model": "srv/external/API_BUSINESS_PARTNER_API",
+        "credentials": {
+          "path": "/sap/opu/odata/sap/API_BUSINESS_PARTNER",
+          "destination": "Panasonic_S4HANABasicAuth"
+        }
+      },
+      "API_COMPANYCODE_SRV": {
+        "kind": "odata-v2",
+        "model": "srv/external/API_COMPANYCODE_SRV",
+        "credentials": {
+          "path": "/sap/opu/odata/sap/API_COMPANYCODE_SRV",
+          "destination": "Panasonic_S4HANABasicAuth"
+        }
+      },
+      "API_INBOUND_DELIVERY_SRV": {
+        "kind": "odata-v2",
+        "model": "srv/external/API_INBOUND_DELIVERY_SRV",
+        "credentials": {
+          "path": "/sap/opu/odata/sap/API_INBOUND_DELIVERY_SRV",
+          "destination": "Panasonic_S4HANABasicAuth"
+        }
+      },
+      "API_SALES_ORDER_SRV": {
+        "kind": "odata-v2",
+        "model": "srv/external/API_SALES_ORDER_SRV",
+        "credentials": {
+          "path": "/sap/opu/odata/sap/API_SALES_ORDER_SRV",
+          "destination": "Panasonic_S4HANABasicAuth"
+        }
+      },
+      "API_SUPPLIERINVOICE_PROCESS_SRV": {
+        "kind": "odata-v2",
+        "model": "srv/external/API_SUPPLIERINVOICE_PROCESS_SRV",
+        "credentials": {
+          "path": "/sap/opu/odata/sap/API_SUPPLIERINVOICE_PROCESS_SRV",
+          "destination": "Panasonic_S4HANABasicAuth"
+        }
+      },
+      "MM_PUR_PO_MAINT_V2_SRV": {
+        "kind": "odata-v2",
+        "model": "srv/external/MM_PUR_PO_MAINT_V2_SRV",
+        "credentials": {
+          "path": "/sap/opu/odata/sap/MM_PUR_PO_MAINT_V2_SRV",
+          "destination": "Panasonic_S4HANABasicAuth"
+        }
+      },
+      "SHIPPOINTADDR": {
+        "kind": "odata-v2",
+        "model": "srv/external/SHIPPOINTADDR",
+        "credentials": {
+          "path": "/sap/opu/odata/sap/SHIPPOINTADDR",
+          "destination": "Panasonic_S4HANABasicAuth"
+        }
+      }
+    },
+    "hana": {
+      "deploy-format": "hdbtable"
+    }
+  }
+}

@@ -1,0 +1,128 @@
+VIEW "MNET_DASHBOARD_GET_MNET_DATA_LIST_HDR_VIEW" AS (
+  SELECT DISTINCT CAST(LatestStatusRecords_0.BOLID AS INTEGER) AS houseBOLNumber_ID,
+  CAST(
+    LatestStatusRecords_0.importShipmentNumber AS NVARCHAR(30)
+  ) AS importShipmentNumber,
+  CAST(T4_2.houseBOLNumber AS NVARCHAR(18)) AS BillofLading,
+  CAST(LatestStatusRecords_0.fileName AS NVARCHAR(100)) AS FileName,
+  CAST(T2_3.invoiceNumber_invoiceNumber AS NVARCHAR(16)) AS SupplierInvoice,
+  cast(
+    (
+      SELECT CASE
+          WHEN locate(LatestBOL_1.M_Status, 'O', 0) > 0 THEN 'O'
+          WHEN locate(LatestBOL_1.M_Status, 'E', 0) > 0 THEN 'E'
+          WHEN locate(LatestBOL_1.M_Status, 'H', 0) > 0 THEN 'H'
+          WHEN locate(LatestBOL_1.M_Status, 'P', 0) > 0 THEN 'P'
+          WHEN locate(LatestBOL_1.M_Status, 'C', 0) > 0 THEN 'C'
+          ELSE IFNULL(LatestBOL_1.M_Status, 'E')
+        END AS P_Status
+      FROM Dummy
+    ) AS NVARCHAR(1)
+  ) AS STATUS,
+  CAST(T2_3.action AS NVARCHAR(1)) AS ACTION,
+  CAST(LatestStatusRecords_0.CREATEDAT AS DATE) AS Received_Date,
+  CAST(
+    LatestStatusRecords_0.initialDestinationETA AS DATE
+  ) AS ETA,
+  CAST(
+     LatestStatusRecords_0.CREATEDAT AS DATE
+  ) AS ProcessDate,
+  CAST(T2_3.BTP_InvoiceDate AS DATE) AS MPro_Date,
+  CAST(
+    LatestStatusRecords_0.representOrderNbr AS NVARCHAR(25)
+  ) AS PurchaseOrder,
+  CAST(P1_4.CompanyCode AS NVARCHAR(4)) AS CompanyCode,
+  CAST(LatestStatusRecords_0.ordererID AS NVARCHAR(20)) AS 
+GlobalCompanyCode,
+  CAST(
+    LatestStatusRecords_0.transformCode AS NVARCHAR(10)
+  ) AS MethodofShipment,
+  CAST(
+    LatestStatusRecords_0.initialDestination AS NVARCHAR(20)
+  ) AS initialDestination
+FROM 
+--MNET_Dashboard_MNetStatusMonitoring AS T4_2
+  --INNER JOIN
+  (
+    (
+      SELECT max(TA_12_6.createdAt) AS CREATEDAT,
+        max(TA_12_6.ID) AS ID,
+        max(TA_12_6.BOLID) AS BOLID,
+        TB_13_7.importShipmentNumber,
+        TB_13_7.initialDestination,
+        TB_13_7.initialDestinationDescription,
+        TB_13_7.initialDestinationETA,
+        TB_13_7.transformCode,
+        TB_13_7.ordererID,
+        TB_13_7.fileName,
+        TB_13_7.representOrderNbr,
+        CAST(
+          IFNULL(TC_14_8.Company_Code, 'DUMMY') AS NVARCHAR(4)
+        ) AS CompanyCode,
+        CAST(
+          IFNULL(TC_14_8.Parameter2, 'DUMMY') AS NVARCHAR(4)
+        ) AS PurchasingOrganization
+      FROM MNET_Dashboard_MNetStatusMonitoring AS TA_12_6
+        LEFT OUTER JOIN MNET_Dashboard_bolHeader AS TB_13_7
+ON TA_12_6.houseBOLNumber = TB_13_7.houseBOLNumber
+        AND TA_12_6.BOLID = TB_13_7.ID
+        LEFT OUTER JOIN MNET_Dashboard_ZCROSSREF AS TC_14_8
+ON TC_14_8.Function_Code = '
+GLOBAL_CODE'
+        AND TC_14_8.Legacy_Code = 'ACOUNTEE_CODE'
+      WHERE TA_12_6.importShipmentNumber = TB_13_7.importShipmentNumber
+      GROUP BY TB_13_7.importShipmentNumber,
+        TB_13_7.initialDestination,
+        TB_13_7.initialDestinationDescription,
+        TB_13_7.initialDestinationETA,
+        TB_13_7.transformCode,
+        TB_13_7.ordererID,
+        TB_13_7.fileName,
+        TB_13_7.representOrderNbr,
+        TC_14_8.Company_Code,
+        TC_14_8.Parameter2
+    )
+  ) AS LatestStatusRecords_0
+  LEFT OUTER JOIN MNET_Dashboard_invoiceLine AS T2_3
+ON LatestStatusRecords_0.BOLID = T2_3.invoiceNumber_houseBOLNumber_ID
+  LEFT OUTER JOIN MNET_Dashboard_bolHeader AS T4_2
+ON T4_2.ID = LatestStatusRecords_0.BOLID
+  AND T4_2.importShipmentNumber = LatestStatusRecords_0.importShipmentNumber
+  AND T4_2.housebolnumber = T2_3.invoiceNumber_houseBOLNumber_housebolnumber
+  LEFT OUTER JOIN MNET_Dashboard_A_PurchaseOrder AS P1_4
+ON T2_3.purchaseOrderNumber = P1_4.PurchaseOrder
+  INNER JOIN MNET_Dashboard_GetUserList AS U1_5
+ON IFNULL(
+    P1_4.CompanyCode,
+    LatestStatusRecords_0.CompanyCode
+  ) = U1_5.CompanyCode
+  AND IFNULL(
+    P1_4.PurchasingOrganization,
+    LatestStatusRecords_0.PurchasingOrganization
+  ) = U1_5.PurchaseOrg
+  LEFT OUTER JOIN (
+    (
+      SELECT Max(T0A_9.ID) AS Max_ID,
+        STRING_AGG(T2A_10.Status, ',') AS M_Status,
+        T2A_10.invoiceNumber_invoiceNumber AS M_INVOICE,
+        T0A_9.importShipmentNumber AS Folder_NO
+      FROM MNET_Dashboard_bolHeader AS T0A_9
+        INNER JOIN MNET_Dashboard_invoiceLine AS T2A_10
+ON T2A_10.invoiceNumber_houseBOLNumber_houseBOLNumber = T0A_9.houseBOLNumber
+        AND T2A_10.invoiceNumber_houseBOLNumber_ID = T0A_9.ID
+        INNER JOIN (
+          SELECT MAX(T3A.invoiceNumber_houseBOLNumber_ID) AS MAX_INVBOLID,
+            T3A.INVOICENUMBER_Invoicenumber AS MAX_INVOICENUMBER
+          FROM MNET_Dashboard_invoiceLine AS T3A
+          GROUP BY T3A.invoiceNumber_invoiceNumber
+        ) AS InvoiceGrouping
+ON T2A_10.INVOICENUMBER_Invoicenumber = InvoiceGrouping.MAX_INVOICENUMBER
+        AND T2A_10.invoiceNumber_houseBOLNumber_ID = InvoiceGrouping.MAX_INVBOLID
+      GROUP BY T0A_9.importShipmentNumber,
+        T2A_10.invoiceNumber_invoiceNumber
+    )
+  ) AS LatestBOL_1
+ON T4_2.importShipmentNumber = LatestBOL_1.Folder_NO
+  AND T2_3.invoiceNumber_invoiceNumber = LatestBOL_1.M_INVOICE
+WHERE LatestStatusRecords_0.BOLID = LatestBOL_1.Max_ID
+)

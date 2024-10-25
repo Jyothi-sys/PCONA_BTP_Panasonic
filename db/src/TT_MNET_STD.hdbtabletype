@@ -1,0 +1,4 @@
+TYPE "TT_MNET_STD" AS TABLE ( 
+    "MNET_ID"  INT,
+    "STATUS" NVARCHAR(10)
+)

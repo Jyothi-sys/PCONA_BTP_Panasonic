@@ -1,0 +1,1 @@
+sap.ui.define([],function(){"use strict";return{dateFormat:function(t){if(t){var e=new Date(t);e.setHours(e.getHours()+5);e.setMinutes(e.getMinutes()+30);var r=sap.ui.core.format.DateFormat.getDateTimeInstance({pattern:"MM-dd-yyyy",UTC:true});t=r.format(e);return t}else{return t}}}});

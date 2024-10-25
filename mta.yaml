@@ -1,0 +1,198 @@
+_schema-version: "3.1"
+ID: BTP_Panasonic
+description: A simple CAP project.
+version: 1.0.0
+modules:
+- name: BTP_Panasonic-srv
+  type: nodejs
+  path: gen/srv
+  requires:
+  - name: BTP_Panasonic-db
+  - name: BTP_Panasonic-uaa
+  - name: BTP_Panasonic-connectivity
+  - name: BTP_Panasonic-destination
+  - name: BTP_Panasonic-srv-log    
+  provides:
+  - name: srv-api
+    properties:
+      srv-url: ${default-url}
+  parameters:
+    buildpack: nodejs_buildpack
+  build-parameters:
+    builder: npm-ci
+####CALM Instrumentation. Tenant ID added has PROD_ID,because no need of hardcoding of tenantid in uservariable. but need to update in Dev,QAS,QAT.
+  properties:
+    SAP_CALM_SERVICE_NAME: BTP_Panasonic-srv
+    SAP_CALM_SERVICE_TYPE: SAP_CP_CF
+    OTEL_RESOURCE_ATTRIBUTES: sap.tenancy.tenant_id=1af11409-12f6-40cf-b682-7f9feaad4487
+    SAP_CALM_DCI_LOG_LEVEL: debug
+    SAP_CALM_FESR_LOG_LEVEL: debug
+    OTEL_LOG_LEVEL: info
+    NODE_ARGS: -r @sap/xotel-agent-ext-js/dist/common/tracer
+- name: BTP_Panasonic-db-deployer
+  type: hdb
+  path: gen/db
+  requires:
+  - name: BTP_Panasonic-db
+  parameters:
+    buildpack: nodejs_buildpack
+- name: BTP_Panasonic-destination-content
+  type: com.sap.application.content
+  requires:
+  - name: BTP_Panasonic-destination
+    parameters:
+      content-target: true
+  - name: BTP_Panasonic-repo-host
+    parameters:
+      service-key:
+        name: BTP_Panasonic_html_repo_host-key
+  - name: BTP_Panasonic-uaa
+    parameters:
+      service-key:
+        name: BTP_Panasonic-uaa-key
+  parameters:
+    content:
+      instance:
+        destinations:
+        - Name: BTP_Panasonic_html_repo_host
+          ServiceInstanceName: BTP_Panasonic-html5-srv
+          ServiceKeyName: BTP_Panasonic_html_repo_host-key
+          sap.cloud.service: BTP_Panasonic-Main
+        - Authentication: OAuth2UserTokenExchange
+          Name: BTP_Panasonic-uaa
+          ServiceInstanceName: BTP_Panasonic-uaa
+          ServiceKeyName: BTP_Panasonic-uaa-key
+          sap.cloud.service: BTP_Panasonic-Main
+        existing_destinations_policy: update
+  build-parameters:
+    no-source: true
+- name: BTP_Panasonic-app-content
+  type: com.sap.application.content
+  path: .
+  requires:
+  - name: BTP_Panasonic-repo-host
+    parameters:
+      content-target: true
+  build-parameters:
+    build-result: resources
+    requires:
+    - artifacts:
+      - pojdashipplan.zip
+      name: pojdashipplan
+      target-path: resources/
+    - artifacts:
+      - pojdasel.zip
+      name: pojdasel
+      target-path: resources/
+- name: pojdashipplan
+  type: html5
+  path: app/po_jda_ship_plan
+  build-parameters:
+    build-result: dist
+    builder: custom
+    commands:
+    - npm install
+    - npm run build:cf
+    supported-platforms: []
+- name: pojdasel
+  type: html5
+  path: app/po_jda_sel
+  build-parameters:
+    build-result: dist
+    builder: custom
+    commands:
+    - npm install
+    - npm run build:cf
+    supported-platforms: []
+resources:
+- name: BTP_Panasonic-db
+  type: com.sap.xs.hdi-container
+  parameters:
+    service: hana
+    service-plan: hdi-shared
+- name: BTP_Panasonic-uaa
+  type: org.cloudfoundry.managed-service
+  parameters:
+    config:
+      role-collections:
+      - description: Manage PO
+        name: POManager-${space}
+        role-template-references:
+        - $XSAPPNAME.POManager
+      - description: View PO
+        name: POViewer-${space}
+        role-template-references:
+        - $XSAPPNAME.POViewer
+      - description: Manage Data
+        name: Factory_Manage_Data_Role
+        role-template-references:
+        - $XSAPPNAME.Factory_Manage_Role
+      - description: Read Only Data
+        name: Factory_ReadOnly_Data_Role
+        role-template-references:
+        - $XSAPPNAME.Factory_ReadOnly_Role 
+      tenant-mode: dedicated
+      xsappname: BTP_Panasonic-${space}
+    path: ./xs-security.json
+    service: xsuaa
+    service-name: BTP_Panasonic-uaa
+    service-plan: application
+- name: BTP_Panasonic-connectivity
+  type: org.cloudfoundry.managed-service
+  parameters:
+    service: connectivity
+    service-plan: lite
+################ BTP LOGGING #########################
+- name: BTP_Panasonic-srv-log
+  type: org.cloudfoundry.managed-service
+  parameters:
+    service: application-logs
+    service-plan: standard
+    service-name: BTP_Panasonic-srv-log
+  properties:
+    hdi-service-name: '${service-name}'
+################ BTP LOGGING #########################
+- name: BTP_Panasonic-destination
+  type: org.cloudfoundry.managed-service
+  parameters:
+    HTML5.DynamicDestination: true
+    config:
+      HTML5Runtime_enabled: true
+      init_data:
+        instance:
+          destinations:
+          - Authentication: NoAuthentication
+            Name: ui5
+            ProxyType: Internet
+            Type: HTTP
+            URL: https://ui5.sap.com
+          existing_destinations_policy: update
+    init_data:
+      instance:
+        destinations:
+        - Authentication: BasicAuthentication
+          Location ID: USHECCC
+          Name: Panasonic_S4HANABasicAuth
+          Proxy Type: OnPremise
+          Type: HTTP
+          URL: http://saps4hanaxae:8000
+          User: BTPDEVUSER
+        existing_destinations_policy: update
+    service: destination
+    service-name: BTP_Panasonic-destination
+    service-plan: lite
+    version: 1.0.0
+- name: BTP_Panasonic-repo-host
+  type: org.cloudfoundry.managed-service
+  parameters:
+    service: html5-apps-repo
+    service-name: BTP_Panasonic-html5-srv
+    service-plan: app-host
+parameters:
+  deploy_mode: html5-repo
+  enable-parallel-deployments: true
+build-parameters:
+  before-all:
+  - builder: custom
+    commands:
+    - npx -p @sap/cds-dk cds build --production

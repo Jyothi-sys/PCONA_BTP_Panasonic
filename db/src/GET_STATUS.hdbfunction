@@ -1,0 +1,49 @@
+-- Preethi added for FINT-00047 on 28/11/23
+FUNCTION GET_STATUS(PO VARCHAR(10) DEFAULT '')
+    RETURNS StatusId VARCHAR(20)
+    AS
+    BEGIN
+        DECLARE LatestStatus VARCHAR(20);
+        
+    
+        -- Check if the value exists in POConfirmationData
+        IF EXISTS (SELECT 1 FROM BTP_PANASONIC_POConfirmationData WHERE PurchaseOrder = PO)
+            THEN
+              BEGIN
+            -- Retrieve the latest status from POConfirmationData
+                SELECT TOP 1 T2.Status INTO LatestStatus
+                FROM BTP_PANASONIC_POConfirmationData AS T2
+                WHERE T2.PurchaseOrder = PO AND T2.Status IS NOT NULL
+                ORDER BY T2.MODIFIEDAT DESC;
+            --   EXCEPTION
+            --     WHEN OTHERS THEN
+            -- -- Handle no data found for POConfirmationData by getting all data
+            --     SELECT TOP 1 T2.Status INTO LatestStatus
+            --     FROM BTP_PANASONIC_POConfirmationData AS T2
+            --     WHERE T2.Status IS NOT NULL
+            --     ORDER BY T2.MODIFIEDAT DESC;
+              END;
+        ELSE
+        
+            -- Retrieve the latest status from POStatusMonitoring
+            IF EXISTS (SELECT 1 FROM BTP_PANASONIC_POStatusMonitoring WHERE PO = PO)
+            THEN
+                BEGIN
+                  SELECT TOP 1 T3.Status INTO LatestStatus
+                  FROM BTP_PANASONIC_POStatusMonitoring AS T3
+                  WHERE T3.PO = PO AND T3.Status IS NOT NULL
+                  ORDER BY T3.MODIFIEDAT DESC;
+                -- EXCEPTION
+                --   WHEN OTHERS THEN
+                -- -- Handle no data found for POStatusMonitoring by getting all data
+                --   SELECT TOP 1 T3.Status INTO LatestStatus
+                --   FROM BTP_PANASONIC_POStatusMonitoring AS T3
+                --   WHERE T3.Status IS NOT NULL
+                --   ORDER BY T3.MODIFIEDAT DESC;
+                END;
+            END IF;
+        END IF;
+      
+    
+         StatusId = LatestStatus;
+    END;

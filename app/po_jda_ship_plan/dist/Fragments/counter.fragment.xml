@@ -1,0 +1,25 @@
+<c:FragmentDefinition
+	xmlns="sap.m"
+	xmlns:c="sap.ui.core">
+
+
+  <SelectDialog  
+  noDataText="{i18n>NoDataFound}"
+  title="{i18n>COUNTER}"
+  liveChange="onSearchCounter"
+  confirm="onSelectionCounter"
+  cancel="onDialogClose"
+  multiSelect="true"
+  items="{counterData>/}">
+
+<StandardListItem 
+
+title="{path: 'counterData>counter'}"
+iconDensityAware="false"
+iconInset="false"
+type="Active" />
+
+
+</SelectDialog >
+</c:FragmentDefinition>
+

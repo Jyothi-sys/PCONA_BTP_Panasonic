@@ -1,0 +1,2 @@
+SEQUENCE "PO_List_SEQUENCE_NO"
+            RESET BY Select ifnull(max("SEQUENCE_NO"),0) + 1 From BTP_PANASONIC_PO_LIST;

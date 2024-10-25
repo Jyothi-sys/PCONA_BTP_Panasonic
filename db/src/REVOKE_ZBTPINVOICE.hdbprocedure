@@ -1,0 +1,43 @@
+PROCEDURE REVOKE_ZBTPINVOICE(
+    IN folderno VARCHAR(30),
+    IN housebolno VARCHAR(30),
+    IN invoiceno VARCHAR(30),
+    IN invoicelineno VARCHAR(30),
+    IN Serviceticketno VARCHAR(30)
+)
+AS 
+BEGIN
+    DECLARE BOLID INT;
+    DECLARE old_invoice_number NVARCHAR(30);
+ 
+    -- Fetch the latest BOLID for the given housebolno
+    SELECT MAX(ID) INTO BOLID
+    FROM BTP_PANASONIC_BOLHEADER AS C
+    WHERE C.HOUSEBOLNUMBER = housebolno;
+ 
+    -- Fetch the old_invoice_number
+    SELECT DISTINCT A.BTP_INVOICENUMBER INTO old_invoice_number
+    FROM BTP_PANASONIC_INVOICELINE AS A
+    WHERE A.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = housebolno
+    AND A.INVOICENUMBER_INVOICENUMBER = invoiceno
+    AND A.LINENUMBER = invoicelineno
+    LIMIT 1;
+ 
+    -- Update BTP_PANASONIC_INVOICELINE
+    UPDATE BTP_PANASONIC_INVOICELINE AS A
+    SET BTP_INVOICENUMBER = ''
+    WHERE A.INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = housebolno
+    AND A.INVOICENUMBER_INVOICENUMBER = invoiceno
+    AND A.LINENUMBER = invoicelineno;
+ 
+    -- Update BTP_PANASONIC_MNETSTATUSMONITORING
+    UPDATE BTP_PANASONIC_MNETSTATUSMONITORING AS M
+    SET MESSAGE = 'Invoice No ' || invoiceno || ' updated by user for ' || Serviceticketno
+    WHERE M.HOUSEBOLNUMBER = housebolno
+    AND M.INVOICENUMBER = invoiceno
+    AND M.OBJECTTYPE = 'Invoice'
+    AND M.BOLID = BOLID
+    AND M.OBJECTREFNO = old_invoice_number;
+ 
+    COMMIT;
+END;

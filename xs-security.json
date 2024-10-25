@@ -1,0 +1,74 @@
+{
+  "xsappname": "BTP_Panasonic",
+  "tenant-mode": "dedicated",
+  "scopes": [
+    {
+      "name": "$XSAPPNAME.POViewer",
+      "description": "POViewer"
+    },
+    {
+      "name": "$XSAPPNAME.POManager",
+      "description": "POManager"
+    },
+    {
+      "name": "$XSAPPNAME.Factory_ReadOnly_Role",
+      "description": "Display Access"
+    },{
+      "name": "$XSAPPNAME.Factory_Manage_Role",
+      "description": "Manage Access"
+    }
+  ],
+  "attributes": [
+    {
+      "name" : "FactoryDataAction",
+      "valueType" : "string",
+      "valueRequired" : "false"
+  }
+  ],
+  "role-templates": [
+    {
+      "name": "POViewer",
+      "description": "generated",
+      "scope-references": [
+        "$XSAPPNAME.POViewer"
+      ],
+      "attribute-references": []
+    },
+    {
+      "name": "POManager",
+      "description": "generated",
+      "scope-references": [
+        "$XSAPPNAME.POManager"
+      ],
+      "attribute-references": []
+    },
+    {
+      "name": "Factory_ReadOnly_Role",
+      "description": "Display Access",
+      "scope-references": [
+        "$XSAPPNAME.Factory_ReadOnly_Role"
+      ]
+    },
+    {
+      "name": "Factory_Manage_Role",
+      "description": "Manage Access",
+      "scope-references": ["$XSAPPNAME.Factory_ReadOnly_Role","$XSAPPNAME.Factory_Manage_Role"],
+      "attribute-references": [ { "name" : "FactoryDataAction" } ]
+   
+    },
+    {
+      "name": "Token_Exchange",
+      "description": "UAA",
+      "scope-references": [
+        "uaa.user"
+      ]
+    }
+  ],
+  "role-collections": [{
+    "name": "Factory_ReadOnly_Data_Role",
+    "role-template-references": [ "$XSAPPNAME.Factory_ReadOnly_Role" ]
+  },{
+    "name": "Factory_Manage_Data_Role",
+    "role-template-references": [ "$XSAPPNAME.Factory_Manage_Role" ]
+  }]
+}

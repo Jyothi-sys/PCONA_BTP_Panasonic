@@ -1,0 +1,41 @@
+FUNCTION GET_TRANSDATE(  IN POrder NVARCHAR(10), 
+				IN PVendorAssignmentAccountGroup NVARCHAR(4), 
+				IN PSAP_CODE NVARCHAR(4), 
+				IN PSupplierRespSalesPersonName NVARCHAR(18),
+				IN PCreationDate Date
+) 
+  RETURNS LTransDate DATE AS 
+BEGIN
+  DECLARE LatestDate DATE;
+  DECLARE latestcount INTEGER;
+  DECLARE EXIT HANDLER FOR SQLEXCEPTION
+	LTransDate = NULL;
+  -- Retrieve Latest Date from POStatusMonitoring
+  --SELECT COUNT(T2.Createdat) INTO latestcount
+
+  If NOT(PVendorAssignmentAccountGroup = PSAP_CODE or  PSupplierRespSalesPersonName = 'X') 
+	AND EXISTS(Select TOP 1 T2.Createdat
+				FROM BTP_PANASONIC_POStatusMonitoring AS T2
+				WHERE T2.PO = POrder
+    			AND T2.ObjectType = 'Outbound'
+    			AND (T2.Status = 'Info')
+				 ) THEN  
+  --  AND (T2.Status = 'S');
+  -- IF(latestcount > 0) THEN
+		SELECT T2.Createdat INTO LatestDate
+		FROM BTP_PANASONIC_POStatusMonitoring AS T2
+		WHERE T2.PO = POrder
+    	AND T2.ObjectType = 'Outbound'
+    	AND (T2.Status = 'Info')
+		ORDER BY T2.MODIFIEDAT DESC
+		LIMIT 1;
+		
+		LTransDate = LatestDate;
+  ELSE 
+		IF (PVendorAssignmentAccountGroup = PSAP_CODE or  PSupplierRespSalesPersonName = 'X') THEN
+ 			LTransDate = PcreationDate;
+		ELSE
+			LTransDate = NULL;
+		END IF;
+	END IF;
+END;

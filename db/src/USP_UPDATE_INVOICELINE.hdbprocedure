@@ -1,0 +1,78 @@
+PROCEDURE "USP_UPDATE_INVOICELINE"(IN V_PO NVARCHAR(50), OUT IS_UPDATES BOOLEAN) 
+  LANGUAGE SQLSCRIPT 
+  SQL SECURITY INVOKER AS 
+BEGIN
+  DECLARE R_CNT INTEGER;
+  DECLARE Invoice NVARCHAR(16);
+  DECLARE InvoiceLine NVARCHAR(30);
+  DECLARE BOLID Integer;
+  DECLARE BOL NVARCHAR(18);
+  DECLARE PO_Item NVARCHAR(5);
+  SELECT CAST(
+      (
+        SELECT SUBSTRING_REGEXPR(
+            '[^:,]+' IN T2.message
+            FROM 1 OCCURRENCE 3
+          )
+        FROM dummy
+      ) AS NVARCHAR(16)
+    ) AS Invoice,
+    --buyerPartID
+    CAST(
+      (
+        SELECT SUBSTRING_REGEXPR(
+            '[^:,]+' IN T2.message
+            FROM 1 OCCURRENCE 5
+          )
+        FROM dummy
+      ) AS NVARCHAR(30)
+    ) AS InvoiceLine,
+    CAST(
+      (
+        SELECT SUBSTRING_REGEXPR(
+            '[^:,]+' IN T2.message
+            FROM 1 OCCURRENCE 7
+          )
+        FROM dummy
+      ) AS Integer
+    ) AS BOLID,
+    CAST(
+      (
+        SELECT SUBSTRING_REGEXPR(
+            '[^:,]+' IN T2.message
+            FROM 1 OCCURRENCE 9
+          )
+        FROM dummy
+      ) AS NVARCHAR(18)
+    ) AS BOL,
+    CAST(
+      (
+        SELECT SUBSTRING_REGEXPR(
+            '[^:,]+' IN T2.message
+            FROM 1 OCCURRENCE 11
+          )
+        FROM dummy
+      ) AS NVARCHAR(5)
+    ) AS PO_Item INTO Invoice,
+    InvoiceLine,
+    BOLID,
+    BOL,
+    PO_Item
+  FROM BTP_PANASONIC_POSTATUSMONITORING AS T2
+  WHERE T2.CREATEDAT BETWEEN ADD_SECONDS(CURRENT_TIMESTAMP, -3600)
+    AND ADD_SECONDS(CURRENT_TIMESTAMP, -2600)
+    AND T2.Status = 'Substituted'
+    AND T2.PO = :V_PO;
+  UPDATE BTP_PANASONIC_INVOICELINE
+  SET ORDERITEMNBR = :PO_Item
+  WHERE INVOICENUMBER_INVOICENUMBER = :Invoice
+    AND INVOICENUMBER_HOUSEBOLNUMBER_ID = :BOLID
+    AND INVOICENUMBER_HOUSEBOLNUMBER_HOUSEBOLNUMBER = :BOL
+    AND LINENUMBER = :InvoiceLine
+    AND PURCHASEORDERNUMBER = :V_PO
+    AND (
+      ORDERITEMNBR <> ''
+      OR ORDERITEMNBR <> :PO_Item
+    );
+  IS_UPDATES = TRUE;
+END;

@@ -1,0 +1,580 @@
+<mvc:View controllerName="pojdashipplan.controller.View1"
+     
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns:core="sap.ui.core"
+    displayBlock="true"
+    xmlns:f="sap.ui.layout.form"
+    xmlns:l="sap.ui.layout"
+    xmlns="sap.m"
+    xmlns:ff="sap.f"
+    xmlns:fb="sap.ui.comp.filterbar"
+>
+    <Shell id="shell">
+        <App id="app">
+            <pages >
+                <Page title="{i18n>title}" enableScrolling="true">
+                    <fb:FilterBar
+                        id="filterbar"
+                        persistencyKey="myPersKey"
+                        useToolbar="false"
+                        search="onGoToReport"
+                        showClearOnFB="true"
+                        clear="onPressClear"
+                        filterChange=".onFilterChange"
+                        afterVariantLoad=".onAfterVariantLoad">
+                        
+                        <fb:filterGroupItems>
+
+                            <fb:FilterGroupItem
+                                name="DATE"
+                                label="{i18n>PROC_DT}"
+                                groupName="Group1"
+                                visibleInFilterBar="true"
+                            >
+                                <fb:control>
+                                    <DateRangeSelection
+                                        required="false"
+                                        id="id_datePicker1"
+                                        placeholder="Select Date"
+                                        displayFormat="MM-dd-YYYY"
+                                        valueFormat="MM-dd-YYYY"
+                                        width="70%"
+                                        change="handleChangeDate"
+                                    />
+                                </fb:control>
+                            </fb:FilterGroupItem>                           
+
+                                <!-- <fb:FilterGroupItem
+                                name="PROC_TIME"
+                                label="{i18n>PROC_TIME}"
+                                groupName="Group1"
+                                visibleInFilterBar="true"
+                            >
+                                <fb:control>
+                                    <MultiInput
+                                        id="id_Time"
+                                        showValueHelp="true"                                        
+                                        valueHelpRequest="onOpenTimeFragment"
+                                        placeholder="{i18n>PROC_TIME}"
+                                        tokenUpdate="onTokenTimeChange"
+                                    />
+                                </fb:control>
+                            </fb:FilterGroupItem> -->
+
+                            <fb:FilterGroupItem
+                                name="counter"
+                                label="{i18n>COUNTER}"
+                                groupName="Group1"
+                                visibleInFilterBar="true"
+                            >
+                                <fb:control>
+                                    <MultiInput
+                                        id="id_Counter"
+                                        showValueHelp="true"                                        
+                                        valueHelpRequest="onOpenCounterFragment"
+                                        placeholder="{i18n>COUNTER}"
+                                        tokenUpdate="onTokenCounterChange"
+                                    />
+                                </fb:control>
+                            </fb:FilterGroupItem>
+
+                            <fb:FilterGroupItem
+                                name="MATERIAL"
+                                label="{i18n>MATERIAL}"
+                                groupName="Group1"
+                                visibleInFilterBar="true"
+                            >
+                                <fb:control>
+                                    <MultiInput
+                                        id="id_Material"
+                                        showValueHelp="true"                                        
+                                        valueHelpRequest="onOpenMaterialFragment"
+                                        placeholder="{i18n>MATERIAL}"
+                                        tokenUpdate="onTokenMaterialChange"
+                                    />
+                                </fb:control>
+                            </fb:FilterGroupItem>
+
+                            <fb:FilterGroupItem
+                                name="ZSSHIPDATE"
+                                label="{i18n>ZSSHIPDATE}"
+                                groupName="Group1"
+                                visibleInFilterBar="true"
+                            >
+                                <fb:control>
+                                    <DateRangeSelection
+                                        required="false"
+                                        id="id_Shipdate"
+                                        placeholder="Select Date"
+                                        displayFormat="MM-dd-YYYY"
+                                        valueFormat="MM-dd-YYYY"
+                                        width="70%"
+                                        change="handleChangeShipDate"
+                                    />
+                                </fb:control>
+                            </fb:FilterGroupItem>
+
+                            
+
+                            <!-- <fb:FilterGroupItem
+                                name="ZSARRDATE"
+                                label="{i18n>ZSARRDATE}"
+                                groupName="Group1"
+                                visibleInFilterBar="true"
+                            >
+                                <fb:control>
+                                    <DateRangeSelection
+                                        required="false"
+                                        id="id_sardate"
+                                        placeholder="Select Date"
+                                        displayFormat="MM-dd-YYYY"
+                                        valueFormat="MM-dd-YYYY"
+                                        width="70%"
+                                        change="handleChangeDate"
+                                    />
+                                </fb:control>
+                            </fb:FilterGroupItem> -->
+
+                             <!-- <fb:FilterGroupItem
+                                name="ZJDASOURCE"
+                                label="{i18n>ZJDASOURCE}"
+                                groupName="Group1"
+                                visibleInFilterBar="true"
+                            >
+                                <fb:control>
+                                    <MultiInput
+                                        id="id_Source"
+                                        showValueHelp="true"                                        
+                                        valueHelpRequest="onOpenSourceFragment"
+                                        placeholder="{i18n>ZJDASOURCE}"
+                                        tokenUpdate="onTokenSourceChange"
+                                    />
+                                </fb:control>
+                            </fb:FilterGroupItem>                         -->
+                            </fb:filterGroupItems>
+                    </fb:FilterBar>
+
+                    <content>
+                    <ScrollContainer vertical="true" focusable="true">
+                        <Table
+                            alternateRowColors="true"
+                            backgroundDesign="Solid"
+                            mode="None"
+                            sticky="ColumnHeaders"
+                            headerText="{i18n>ComponentPOStatus}"
+                            items="{tableModel>/}"
+                            autoPopinMode="false"
+                            contextualWidth="Auto"
+                            id="Table"
+                            inset="false"
+                            growing="true"
+                            growingThreshold="20"
+                            growingScrollToLoad="false"
+                            fixedLayout="true"
+                            >
+                        <headerToolbar>
+                           <OverflowToolbar>
+                           <Text id="hdtxt" text="{i18n>ComponentPOStatus}"></Text>
+                                    <ToolbarSpacer />
+                                    <Button
+                                        icon="sap-icon://excel-attachment"
+                                        press="onExportSelected"
+                                    />
+	                                <Button
+						                tooltip="Sort"
+						                icon="sap-icon://sort"
+						            press="handleSortButtonPressed"
+                                    />
+                                    <MultiComboBox
+                                        placeholder="{i18n>show_hidecolumns}"
+                                        selectionChange="handleSelectionChange"
+                                        selectionFinish="handleSelectionFinish"
+                                        width="30%"
+                                        selectedKeys="Date,Counter,Material,SalesOrder,SalesOrderLine,Dest,Source,Sourcing,ShipDate,SarrDate,Quantity,Tmode,Segment,Demand,Pattern,ItemType,JDASource,SupplyType,U.Destination"
+                                        id="id_showHideColumns">
+                                        <core:Item
+                                            key="Date"
+                                            text="{i18n>PROC_DT}"
+                                        />
+                                        <core:Item
+                                            key="Counter"
+                                            text="{i18n>COUNTER}"
+                                        />
+                                        <core:Item
+                                            key="Material"
+                                            text="{i18n>MATNR}"
+                                        />
+                                        <core:Item
+                                            key="SalesOrder"
+                                            text="{i18n>ZSALESORD}"
+                                        />
+                                        <core:Item
+                                            key="SalesOrderLine"
+                                            text="{i18n>ZSALESORDLINE}"
+                                        />
+                                        <core:Item
+                                            key="Dest"
+                                            text="{i18n>ZDEST}"
+                                        />
+                                        <core:Item
+                                            key="Source"
+                                            text="{i18n>ZSOURCE}"
+                                        />
+                                        <core:Item
+                                            key="Sourcing"
+                                            text="{i18n>ZSOURCING}"
+                                        />
+                                        <core:Item
+                                            key="ShipDate"
+                                            text="{i18n>ZSSHIPDATE}"
+                                        />
+                                        <core:Item
+                                            key="SarrDate"
+                                            text="{i18n>ZSARRDATE}"
+                                        />
+                                        <core:Item
+                                            key="Quantity"
+                                            text="{i18n>ZQTY}"
+                                        />
+                                        <core:Item
+                                            key="Tmode"
+                                            text="{i18n>ZTMODE}"
+                                        />
+                                        <core:Item
+                                            key="Segment"
+                                            text="{i18n>ZSEGMNET}"
+                                        />
+                                        <core:Item
+                                            key="Demand"
+                                            text="{i18n>ZDEMAND}"
+                                        />
+                                        <core:Item
+                                            key="Pattern"
+                                            text="{i18n>ZPATTERN}"
+                                        />
+                                        <core:Item
+                                            key="ItemType"
+                                            text="{i18n>ZITEMTYPE}"
+                                        />
+                                        <core:Item
+                                            key="JDASource"
+                                            text="{i18n>ZJDASOURCE}"
+                                        />
+                                        <core:Item
+                                            key="SupplyType"
+                                            text="{i18n>ZJDASUPPLY}"
+                                        />
+                                        <core:Item
+                                            key="U.Destination"
+                                            text="{i18n>ZUDEST}"
+                                        />
+                                    </MultiComboBox>
+                                                                     
+                            </OverflowToolbar>
+                        </headerToolbar>
+                            <columns>
+                              <Column
+                                    visible="{columnModel>/colVisible1}"
+                                    minScreenWidth="Tablet"
+                                    popinDisplay="Inline"
+                                    demandPopin="true"
+                                    width="7%">
+                                    <Label
+                                        design="Bold"
+                                        text="{i18n>PROC_DT}" />
+                            </Column>
+                                  <!-- <Column
+                                     
+                                    popinDisplay="Block"
+                                    demandPopin="true"
+                                    minScreenWidth="Tablet"
+                                >
+                                    <Label
+                                        design="Bold"
+                                        text="{i18n>PROC_TIME}"
+                                        wrapping="true"
+                                    />
+                                </Column> -->
+                                <Column
+                                    visible="{columnModel>/colVisible2}"
+                                    minScreenWidth="Tablet"
+                                    popinDisplay="Inline"
+                                    demandPopin="true"
+                                    width="auto"
+                                >
+                                    <Label
+                                        design="Bold"
+                                        text="{i18n>COUNTER}"
+                                    />
+                                </Column>
+                                <Column
+                                     visible="{columnModel>/colVisible3}"                                
+                                    popinDisplay="Inline"
+                                    
+                                    width="auto"
+                                    demandPopin="true"
+                                    minScreenWidth="Tablet"
+                                >
+                                    <Label
+                                        design="Bold"
+                                        wrapping="true"
+                                        text="{i18n>MATNR}"
+                                    />
+                                </Column>
+                                   <Column
+                                    visible="{columnModel>/colVisible4}"                                 
+                                    popinDisplay="Inline"
+                                    demandPopin="true"
+                                    width="auto"
+                                    minScreenWidth="Tablet"
+                                >
+                                    <Label
+                                        design="Bold"
+                                        wrapping="true"
+                                        text="{i18n>ZSALESORD}"
+                                    />
+                                </Column>
+                                <Column
+                                    visible="{columnModel>/colVisible5}"
+                                    popinDisplay="Inline"
+                                    demandPopin="true"
+                                    width="auto"
+                                    minScreenWidth="Tablet"
+                                >
+                                    <Label
+                                        design="Bold"
+                                        text="{i18n>ZSALESORDLINE}"
+                                    />
+                                </Column>
+                                <Column
+                                    visible="{columnModel>/colVisible6}"
+                                    popinDisplay="Inline"
+                                    demandPopin="true"
+                                    width="auto"
+                                    minScreenWidth="Tablet"
+                                >
+                                    <Label
+                                        design="Bold"
+                                        text="{i18n>ZDEST}"
+                                        wrapping="true"
+                                    />
+                                </Column>
+                                <Column
+                                    visible="{columnModel>/colVisible7}"
+                                    popinDisplay="Inline"
+                                    demandPopin="true"
+                                    width="auto"
+                                    minScreenWidth="Tablet"
+                                >
+                                    <Label
+                                        design="Bold"
+                                        text="{i18n>ZSOURCE}"
+                                        wrapping="true"
+                                    />
+                                </Column>
+                                 <Column
+                                    visible="{columnModel>/colVisible8}"
+                                    popinDisplay="Inline"
+                                    demandPopin="true"
+                                    width="auto"
+                                    minScreenWidth="Tablet"
+                                >
+                                    <Label
+                                        design="Bold"
+                                        text="{i18n>ZSOURCING}"
+                                        wrapping="true"
+                                    />
+                                </Column>
+                                <Column
+                                    visible="{columnModel>/colVisible9}"
+                                    popinDisplay="Inline"
+                                    demandPopin="true"
+                                    width="auto"
+                                    minScreenWidth="Tablet"
+                                >
+                                    <Label
+                                    wrapping="true"
+                                        design="Bold"
+                                        text="{i18n>ZSSHIPDATE}"
+                                    />
+                                </Column>
+                              
+                                <Column
+                                    visible="{columnModel>/colVisible10}"
+                                    popinDisplay="Inline"
+                                    demandPopin="true"
+                                    width="auto"
+                                    minScreenWidth="Tablet"
+                                >
+                                    <Label
+                                        design="Bold"
+                                        text="{i18n>ZSARRDATE}"
+                                        wrapping="true"
+                                    />
+                                </Column>
+                                <Column
+                                    visible="{columnModel>/colVisible11}"
+                                    popinDisplay="Inline"
+                                    demandPopin="true"
+                                    width="auto"
+                                    minScreenWidth="Tablet"
+                                >
+                                    <Label
+                                        design="Bold"
+                                        text="{i18n>ZQTY}"
+                                        wrapping="true"
+                                    />
+                                </Column>
+
+                                <Column
+                                    visible="{columnModel>/colVisible12}"
+                                    popinDisplay="Inline"
+                                    demandPopin="true"
+                                    width="auto"
+                                    minScreenWidth="Tablet"
+                                >
+                                    <Label
+                                        design="Bold"
+                                        text="{i18n>ZTMODE}"
+                                        wrapping="true"
+                                    />
+                                </Column>
+                                <Column
+                                    visible="{columnModel>/colVisible13}"
+                                    popinDisplay="Inline"
+                                    demandPopin="true"
+                                    width="auto"
+                                    minScreenWidth="Tablet"
+                                >
+                                    <Label
+                                        design="Bold"
+                                        text="{i18n>ZSEGMNET}"
+                                        wrapping="true"
+                                    />
+                                </Column>
+                                <Column
+                                    visible="{columnModel>/colVisible14}"
+                                    popinDisplay="Inline"
+                                    demandPopin="true"
+                                    width="auto"
+                                    minScreenWidth="Tablet"
+                                >
+                                    <Label
+                                        design="Bold"
+                                        text="{i18n>ZDEMAND}"
+                                        wrapping="true"
+                                    />
+                                </Column>
+                                <Column
+                                    visible="{columnModel>/colVisible15}"
+                                    popinDisplay="Inline"
+                                    demandPopin="true"
+                                    width="auto"
+                                    minScreenWidth="Tablet"
+                                >
+                                    <Label
+                                        design="Bold"
+                                        text="{i18n>ZPATTERN}"
+                                        wrapping="true"
+                                    />
+                                </Column>
+                                <Column
+                                    visible="{columnModel>/colVisible16}"
+                                    popinDisplay="Inline"
+                                    demandPopin="true"
+                                    width="auto"
+                                    minScreenWidth="Tablet"
+                                >
+                                    <Label
+                                        design="Bold"
+                                        text="{i18n>ZITEMTYPE}"
+                                        wrapping="true"
+                                    />
+                                </Column>
+                                <Column
+                                    visible="{columnModel>/colVisible17}"
+                                    popinDisplay="Inline"
+                                    demandPopin="true"
+                                    width="auto"
+                                    minScreenWidth="Tablet"
+                                >
+                                    <Label
+                                        design="Bold"
+                                        text="{i18n>ZJDASOURCE}"
+                                        wrapping="true"
+                                    />
+                                </Column>
+                                <Column
+                                    visible="{columnModel>/colVisible18}"
+                                    popinDisplay="Inline"
+                                    demandPopin="true"
+                                    width="auto"
+                                    minScreenWidth="Tablet"
+                                >
+                                    <Label
+                                        design="Bold"
+                                        text="{i18n>ZJDASUPPLY}"
+                                        wrapping="true"
+                                    />
+                                </Column>
+                                <Column
+                                    visible="{columnModel>/colVisible19}"
+                                    popinDisplay="Inline"
+                                    demandPopin="true"
+                                    width="auto"
+                                    minScreenWidth="Tablet"
+                                >
+                                    <Label
+                                        design="Bold"
+                                        text="{i18n>ZUDEST}"
+                                        wrapping="true"
+                                    />
+                                </Column>
+                               
+                            </columns>
+                            <items>
+                                <ColumnListItem>
+                                    <cells>
+                                        <!-- <Text text="{path:'tableModel>proc_date',formatter:'pojdashipplan.util.Formatter.date'}"/> -->
+                                        <!-- <Text text="{tableModel>proc_date}"/>   -->
+
+                                        <!-- //@gnaneshwar Defect-65 20-03-2024     -->
+                                         <Text text="{path:'tableModel>proc_date', formatter:'.Formatter.dateFormat'}" />                                      
+                                        <Text text="{tableModel>counter}"/>                                        
+                                        <Text text="{tableModel>matnr}"/>
+                                        <Text text="{tableModel>salesord}"/>
+                                        <Text text="{tableModel>salesordline}"/>
+                                        <Text text="{tableModel>dest}"/>
+                                        <Text text="{tableModel>source}"/>
+                                        <Text text="{tableModel>sourcing}"/> 
+
+                                        <!-- // @gnaneshwar Defect-65 20-03-2024 -->
+                                        <Text text="{path:'tableModel>shipdate', formatter:'.Formatter.dateFormat'}"/>  
+                                        <Text text="{path:'tableModel>sardate', formatter:'.Formatter.dateFormat'}"/>        
+                                        <!-- <Text text="{tableModel>shipdate}"/>  
+                                        <Text text="{tableModel>sardate}"/>                                    -->
+                                        <!-- <Text text="{path:'tableModel>shipdate',formatter:'pojdashipplan.util.Formatter.date'}"/>                                         -->
+                                        <!-- <Text text="{path:'tableModel>sardate',formatter:'pojdashipplan.util.Formatter.date'}"/> -->
+                                        <Text text="{tableModel>quantity}"/>
+                                        <Text text="{tableModel>tmode}"/>
+                                        <Text text="{tableModel>segment}"/>
+                                        <Text text="{tableModel>demand}"/>                                        
+                                        <Text text="{tableModel>pattern}"/>                                        
+                                        <Text text="{tableModel>itemtype}"/>
+                                        <Text text="{tableModel>jdasource}"/>
+                                        <Text text="{tableModel>jdasupply}"/>                                        
+                                        <Text text="{tableModel>udest}"/>                                                                                                      
+                                    </cells>
+                                </ColumnListItem>
+                            </items>
+                        </Table>
+                    </ScrollContainer>
+                    </content>
+                </Page>
+            </pages>
+        </App>
+    </Shell>
+</mvc:View>
+
+    
+
